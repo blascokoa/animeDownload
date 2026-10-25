@@ -79,6 +79,7 @@ class HttpClient:
         referer: str | None = None,
         headers: dict[str, str] | None = None,
         data: dict | None = None,
+        json: dict | None = None,
         retries: int = 3,
         allow_redirects: bool = True,
     ) -> cffi_requests.Response:
@@ -94,6 +95,7 @@ class HttpClient:
                     url,
                     headers=hdrs,
                     data=data,
+                    json=json,
                     timeout=self.settings.request_timeout,
                     allow_redirects=allow_redirects,
                 )

@@ -25,11 +25,14 @@ from bs4.element import NavigableString, TemplateString
 from animedl.models import EpisodeRef, SeriesInfo, VideoSource, format_number
 from animedl.scraping import (
     absolute,
+    anilist_id_in,
     extract_js_value,
     find_episode_links,
     find_player_links,
     lang_from_label,
     make_soup,
+    mal_id_in,
+    movie_from_text,
     origin,
     page_title,
     same_scheme,
@@ -64,7 +67,31 @@ class AnimeFlvExtractor(SiteExtractor):
         episodes = [links.get(e.number, e) for e in episodes] or list(links.values())
         if not episodes:
             raise SiteError(f"No se encontraron episodios en {url}")
-        return SeriesInfo(url=url, title=title or "Sin título", status=status, episodes=episodes)
+        return SeriesInfo(
+            url=url,
+            title=title or "Sin título",
+            status=status,
+            episodes=episodes,
+            **self._media_hints(soup),
+        )
+
+    def _media_hints(self, soup) -> dict:
+        """animeflv.ba links the AniList page of the series and labels movies as "Película"."""
+        hints: dict = {}
+        link = soup.select_one('a[href*="anilist.co/anime/"]')
+        cover = soup.select_one("script#af-episodes")
+        hints["anilist_id"] = anilist_id_in(link["href"] if link else None) or anilist_id_in(
+            cover.string if cover else None
+        )
+        mal = soup.select_one('a[href*="myanimelist.net/anime/"]')
+        hints["mal_id"] = mal_id_in(mal["href"] if mal else None)
+        h1 = soup.select_one("h1.Title")
+        box = h1.find_parent(class_="Container") if h1 else None
+        kind = (box or soup).select_one("span.Type")
+        if kind:
+            classes = " ".join(kind.get("class", []))
+            hints["is_movie"] = movie_from_text(f"{classes} {kind.get_text(' ', strip=True)}")
+        return hints
 
     def _episodes_from_json(self, soup, url: str) -> list[EpisodeRef]:
         el = soup.select_one("script#af-episodes")

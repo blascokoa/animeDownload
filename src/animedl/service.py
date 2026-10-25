@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,8 +14,9 @@ from animedl.db import Database, Episode, Series, now
 from animedl.downloader import Downloader, DownloadError
 from animedl.hosts.catalog import UNSUPPORTED
 from animedl.http import BlockedError, HttpClient
-from animedl.models import EpisodeStatus, Monitor, VideoSource, format_number
-from animedl.naming import episode_basename, existing_video, safe_name
+from animedl.metadata import Identifier, MediaInfo, split_season
+from animedl.models import EpisodeStatus, Monitor, SeriesInfo, VideoSource, format_number
+from animedl.naming import NameParts, episode_basename, existing_video, movie_basename, safe_name
 from animedl.sites import SiteExtractor, extractor_for
 
 log = logging.getLogger(__name__)
@@ -75,6 +77,9 @@ class AnimeService:
         self.http = http
         self.downloader = downloader
         self.extractor_factory = extractor_factory
+        self.identifier = Identifier(
+            http, settings.database.parent, title_language=settings.title_language
+        )
 
     def extractor(self, url: str) -> SiteExtractor:
         return self.extractor_factory(url, self.http)
@@ -107,6 +112,8 @@ class AnimeService:
             monitor=monitor,
             season_override=season,
         )
+        if self.settings.identify:
+            self.identify_series(series, info, keep_name=bool(name), keep_season=season is not None)
         new = self.db.upsert_episodes(series.id, info.episodes)
         if from_episode is not None:
             self.db.set_status(
@@ -128,16 +135,115 @@ class AnimeService:
         self.db.update_series(series.id, **values)
         return new
 
+    # ----------------------------------------------------------------- naming
+
+    def identify_series(
+        self,
+        series: Series,
+        info: SeriesInfo | None = None,
+        *,
+        anilist_id: int | None = None,
+        keep_name: bool = False,
+        keep_season: bool = False,
+    ) -> MediaInfo | None:
+        """Find out the canonical title/year/season/ids of a series (see metadata.py)."""
+        if info is None:
+            info = self.extractor(series.url).get_series(series.url)
+        try:
+            media = self.identifier.identify(
+                info.title,
+                anilist_id=anilist_id or info.anilist_id,
+                mal_id=None if anilist_id else info.mal_id,
+                is_movie=info.is_movie,
+            )
+        except Exception as exc:
+            log.warning("No se pudo identificar «%s» en AniList: %s", series.title, exc)
+            media = None
+
+        # A site that already splits the series in seasons (animeonline) keeps its numbering.
+        site_seasons = len({e.season for e in info.episodes}) > 1
+        values: dict = {"identified_at": now()}
+        if media:
+            values |= {
+                "media_kind": media.kind,
+                "year": media.year,
+                "id_tag": media.id_tag,
+                "episode_offset": media.episode_offset,
+                "anilist_id": media.anilist_id,
+            }
+            title, season = media.title, media.season
+        else:
+            title, season = split_season(info.title)
+            values["media_kind"] = "movie" if info.is_movie else "tv"
+        if not keep_name:
+            values["folder"] = safe_name(title)
+        if not keep_season and not site_seasons and season is not None:
+            values["season_override"] = season
+        self.db.update_series(series.id, **values)
+        if media and media.absolute:
+            log.warning(
+                "«%s» usa numeración absoluta (sin temporadas en TMDB): en Plex elige el orden "
+                "de episodios «TheTVDB (Absolute)» para esta serie.",
+                media.title,
+            )
+        return media
+
+    def name_parts(self, series: Series) -> NameParts:
+        return NameParts(series.folder, series.year, series.id_tag)
+
     def episode_path(self, series: Series, episode: Episode) -> Path:
-        season = series.season_override or episode.season
-        rel = episode_basename(
-            self.settings.filename_template,
-            series=series.folder,
-            season=season,
-            number=episode.number,
-            padding=self.settings.episode_padding,
-        )
+        """Where an episode is (or will be) stored, without the extension."""
+        parts = self.name_parts(series)
+        if series.is_movie:
+            several = len(self.db.episodes(series.id)) > 1
+            rel = movie_basename(
+                self.settings.movie_template, parts, part=episode.number if several else None
+            )
+        else:
+            season = (
+                series.season_override if series.season_override is not None else episode.season
+            )
+            rel = episode_basename(
+                self.settings.filename_template,
+                parts,
+                season=season,
+                number=episode.number + series.episode_offset,
+                padding=self.settings.episode_padding,
+            )
         return self.settings.download_dir / rel
+
+    def rename_files(self, series: Series, *, dry_run: bool = False) -> list[tuple[Path, Path]]:
+        """Move downloaded episodes to the path the current naming gives them."""
+        moves: list[tuple[Path, Path]] = []
+        for ep in self.db.episodes(series.id, [EpisodeStatus.DONE]):
+            if not ep.file_path or not Path(ep.file_path).is_file():
+                continue
+            old = Path(ep.file_path)
+            base = self.episode_path(series, ep)
+            new = base.with_name(base.name + old.suffix)
+            if new == old:
+                continue
+            if new.exists():
+                log.warning("No se mueve %s: ya existe %s", old, new)
+                continue
+            moves.append((old, new))
+            if dry_run:
+                continue
+            new.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(old, new)
+            self.db.move_file(ep.id, str(new))
+            self._remove_empty_dirs(old.parent)
+        return moves
+
+    def _remove_empty_dirs(self, folder: Path) -> None:
+        root = self.settings.download_dir.resolve()
+        folder = folder.resolve()
+        while folder != root and root in folder.parents:
+            try:
+                folder.rmdir()  # only succeeds when empty
+            except OSError:
+                return
+            folder = folder.parent
 
     def adopt_existing_files(self, series: Series) -> int:
         """Mark as done the episodes whose file is already on disk."""
@@ -180,6 +286,10 @@ class AnimeService:
         report = Report()
         if not self.db.episodes(series.id, statuses):
             return report
+        if self.settings.identify and not series.identified_at:
+            # Series added before identification existed: name new downloads properly.
+            self.identify_series(series)
+            series = self.db.get_series(series.id)
         self.adopt_existing_files(series)
         candidates = [
             ep

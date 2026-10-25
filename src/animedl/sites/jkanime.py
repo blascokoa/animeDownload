@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 from animedl.models import EpisodeRef, SeriesInfo, SeriesStatus, VideoSource, format_number
 from animedl.scraping import (
     absolute,
+    detect_movie,
     extract_js_value,
     find_episode_links,
     find_player_links,
@@ -98,7 +99,13 @@ class JkAnimeExtractor(SiteExtractor):
             episodes = self._episodes_from_links(html, url, base, slug, status)
         if not episodes:
             raise SiteError(f"No se encontraron episodios en {url}")
-        return SeriesInfo(url=url, title=title or slug, status=status, episodes=episodes)
+        return SeriesInfo(
+            url=url,
+            title=title or slug,
+            status=status,
+            episodes=episodes,
+            is_movie=detect_movie(soup),
+        )
 
     def _episodes_ajax(
         self, base: str, slug: str, anime_id: str, referer: str, token: str | None, *, new_api: bool

@@ -21,6 +21,7 @@ from animedl.db import Database, Series
 from animedl.downloader import Downloader
 from animedl.http import FetchError, HttpClient
 from animedl.models import EpisodeRef, EpisodeStatus, Monitor, format_number
+from animedl.naming import NameParts, safe_name
 from animedl.progress import LogProgress, RichProgress
 from animedl.service import AnimeService, Report, rank_sources
 from animedl.sites import SiteError, extractor_for
@@ -132,6 +133,43 @@ def parse_ranges(text: str) -> Callable[[float], bool]:
     return lambda n: any(lo <= n <= hi for lo, hi in ranges)
 
 
+def describe(series: Series) -> str:
+    """How Plex/Jellyfin will see the series: "Black Clover (2017) {tmdb-73223} · temporada 2"."""
+    parts = NameParts(series.folder, series.year, series.id_tag)
+    text = f"{parts.series}{parts.ids}"
+    if series.is_movie:
+        return f"{text} · película"
+    if series.season_override is not None:
+        text += f" · temporada {series.season_override}"
+    if series.episode_offset:
+        text += f" · episodios +{series.episode_offset}"
+    return text
+
+
+def print_destination(service: AnimeService, series: Series) -> None:
+    series = service.db.get_series(series.id)
+    episodes = service.db.episodes(series.id)
+    if episodes:
+        target = service.episode_path(series, episodes[0])
+        where = target if series.is_movie else target.parent
+        rel = where.relative_to(service.settings.download_dir)
+        console.print(f"  Plex/Jellyfin: {describe(series)}  →  {rel}", soft_wrap=True)
+    if service.settings.identify and not series.id_tag:
+        console.print(
+            "  [yellow]Sin ID de TMDB/TVDB:[/yellow] Plex/Jellyfin la buscarán por el título. Si no "
+            f"la reconocen: `animedl identify {series.id} --anilist <ID de anilist.co/anime/ID>`"
+        )
+
+
+def print_moves(service: AnimeService, moves, *, dry_run: bool) -> None:
+    root = service.settings.download_dir
+    for old, new in moves:
+        console.print(f"  {old.relative_to(root)}  →  {new.relative_to(root)}", soft_wrap=True)
+    if moves:
+        verb = "se moverían" if dry_run else "movidos"
+        console.print(f"  {len(moves)} fichero(s) {verb}")
+
+
 def print_report(report: Report) -> None:
     for series, ep in report.new_episodes:
         console.print(f"[cyan]Nuevo[/cyan] {series.title} - episodio {format_number(ep.number)}")
@@ -194,6 +232,7 @@ def add(
                 f"{sum(counts.values())} episodios, {len(new)} nuevos, "
                 f"{counts.get('done', 0)} ya descargados"
             )
+            print_destination(service, series)
             added.append(series)
         if added and background:
             console.print(
@@ -227,7 +266,7 @@ def list_series() -> None:
             total = sum(c.values()) - c.get("skipped", 0)
             table.add_row(
                 str(s.id),
-                s.title,
+                f"{s.title}\n[dim]{describe(s)}[/dim]",
                 s.site,
                 s.status.value,
                 f"{s.monitor.value}{' ✓' if s.should_check else ''}",
@@ -248,7 +287,13 @@ def episodes(
     with open_service() as service:
         s = resolve_series(service, series)
         table = Table(
-            "Temp.", "Ep.", "Estado", "Intentos", "Servidor", "Fichero / error", title=s.title
+            "Temp.",
+            "Ep.",
+            "Estado",
+            "Intentos",
+            "Servidor",
+            "Fichero / error",
+            title=f"{s.title} → {describe(s)}",
         )
         for ep in service.db.episodes(s.id, status):
             detail = ep.file_path if ep.status == EpisodeStatus.DONE else (ep.last_error or "")
@@ -308,9 +353,24 @@ def edit(
     url: Annotated[str | None, typer.Option(help="Nueva URL (si la web cambia de dominio)")] = None,
     name: Annotated[str | None, typer.Option(help="Nuevo nombre de carpeta")] = None,
     monitor: Annotated[Monitor | None, typer.Option(help="auto / always / never")] = None,
-    season: Annotated[int | None, typer.Option(help="Forzar temporada (0 = la de la web)")] = None,
+    season: Annotated[
+        int | None, typer.Option(help="Temporada (0 = especiales, -1 = la que diga la web)")
+    ] = None,
+    year: Annotated[int | None, typer.Option(help="Año para el nombre (0 = quitarlo)")] = None,
+    media_id: Annotated[
+        str | None,
+        typer.Option(
+            "--id", help="ID para Plex/Jellyfin: tmdb-123, tvdb-123 o imdb-tt123 ('' = quitarlo)"
+        ),
+    ] = None,
+    movie: Annotated[
+        bool | None, typer.Option("--movie/--tv", help="Tratarla como película o como serie")
+    ] = None,
+    episode_offset: Annotated[
+        int | None, typer.Option(help="Sumar N al número de episodio de la web")
+    ] = None,
 ) -> None:
-    """Cambia la configuración de una serie."""
+    """Cambia la configuración de una serie (y mueve sus ficheros si cambia el nombre)."""
     with open_service() as service:
         s = resolve_series(service, series)
         values: dict = {}
@@ -318,13 +378,75 @@ def edit(
             values["url"] = service.extractor(url).normalize_url(url)
             values["site"] = service.extractor(url).name
         if name:
-            values["folder"] = name
+            values["folder"] = safe_name(name)
         if monitor:
             values["monitor"] = monitor
         if season is not None:
-            values["season_override"] = season or None
+            values["season_override"] = None if season < 0 else season
+        if year is not None:
+            values["year"] = year or None
+        if media_id is not None:
+            tag = media_id.strip().strip("{}[]")
+            if tag and not re.fullmatch(r"(tmdb|tvdb|imdb)-(tt)?\d+", tag):
+                raise typer.BadParameter("Formato: tmdb-123, tvdb-123 o imdb-tt123")
+            values["id_tag"] = f"{{{tag}}}" if tag else None
+        if movie is not None:
+            values["media_kind"] = "movie" if movie else "tv"
+        if episode_offset is not None:
+            values["episode_offset"] = episode_offset
         service.db.update_series(s.id, **values)
         console.print(f"Actualizada «{s.title}»: {', '.join(values) or 'sin cambios'}")
+        s = service.db.get_series(s.id)
+        console.print(f"  Plex/Jellyfin: {describe(s)}")
+        print_moves(service, service.rename_files(s), dry_run=False)
+
+
+@app.command()
+def identify(
+    series: Annotated[list[str] | None, typer.Argument(help="Series (todas si se omite)")] = None,
+    anilist: Annotated[
+        int | None, typer.Option(help="ID de AniList, el número de anilist.co/anime/<ID>")
+    ] = None,
+    keep_name: Annotated[
+        bool, typer.Option("--keep-name", help="No cambiar el nombre de la carpeta")
+    ] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Solo mostrar qué se movería")] = False,
+) -> None:
+    """Identifica la serie (AniList + TMDB/TVDB) y renombra sus ficheros para Plex/Jellyfin."""
+    with open_service() as service:
+        targets = (
+            [resolve_series(service, ref) for ref in series] if series else service.db.list_series()
+        )
+        if anilist and len(targets) != 1:
+            raise typer.BadParameter("--anilist solo se puede usar con una serie")
+        for s in targets:
+            media = service.identify_series(s, anilist_id=anilist, keep_name=keep_name)
+            s = service.db.get_series(s.id)
+            status = "" if media else " [yellow](no encontrada en AniList)[/yellow]"
+            console.print(f"[bold]{s.title}[/bold] → {describe(s)}{status}", soft_wrap=True)
+            print_moves(service, service.rename_files(s, dry_run=dry_run), dry_run=dry_run)
+
+
+@app.command()
+def rename(
+    series: Annotated[list[str] | None, typer.Argument(help="Series (todas si se omite)")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Solo mostrar qué se movería")] = False,
+) -> None:
+    """Mueve lo ya descargado al formato de Plex/Jellyfin (identifica antes las series que aún no
+    lo estén)."""
+    with open_service() as service:
+        targets = (
+            [resolve_series(service, ref) for ref in series] if series else service.db.list_series()
+        )
+        for s in targets:
+            if service.settings.identify and not s.identified_at:
+                service.identify_series(s)
+                s = service.db.get_series(s.id)
+            moves = service.rename_files(s, dry_run=dry_run)
+            if moves:
+                console.print(f"[bold]{s.title}[/bold] → {describe(s)}")
+                print_moves(service, moves, dry_run=dry_run)
+        console.print("Simulación: no se ha movido nada." if dry_run else "Hecho.")
 
 
 @app.command()

@@ -49,8 +49,17 @@ class Settings:
     # Seconds between checks of the download queue in `animedl daemon`.
     queue_interval: int = 60
     max_attempts: int = 5
-    # Path of each episode relative to download_dir, without extension.
-    filename_template: str = "{series}/Season {season:02d}/{series} - S{season:02d}E{episode}"
+    # Paths relative to download_dir, without extension, following the Plex and Jellyfin naming
+    # guides. {series} = "Title (Year)", {ids} = " {tmdb-123}" when the anime was identified.
+    # Add "Series" and "Peliculas" as two separate libraries (TV shows / movies).
+    filename_template: str = (
+        "Series/{series}{ids}/Season {season:02d}/{series} - S{season:02d}E{episode}"
+    )
+    movie_template: str = "Peliculas/{series}{ids}/{series}{ids}"
+    # Look the anime up on AniList + TMDB/TVDB id lists to get the canonical title, year,
+    # season and ids. Turn off to name files after the site's title.
+    identify: bool = True
+    title_language: str = "english"  # or "romaji"
     episode_padding: int = 2
     user_agent: str = DEFAULT_USER_AGENT
     # Netscape cookies.txt exported from your browser (useful when a site has Cloudflare).

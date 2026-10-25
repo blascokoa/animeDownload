@@ -7,11 +7,14 @@ en emisión y descarga los episodios nuevos.
 
 ```
 /mnt/disco/anime/
-└── Black Clover 2nd Season/
-    └── Season 01/
-        ├── Black Clover 2nd Season - S01E01.mp4
-        ├── Black Clover 2nd Season - S01E02.mp4
-        └── ...
+├── Series/                                  ← biblioteca de series en Plex/Jellyfin
+│   ├── Black Clover (2017) {tmdb-73223}/
+│   │   ├── Season 01/Black Clover (2017) - S01E01.mp4 ...
+│   │   └── Season 02/Black Clover (2017) - S02E01.mp4 ...   ← «Black Clover 2nd Season»
+│   └── Attack on Titan (2013) {tmdb-1429}/
+│       └── Season 03/Attack on Titan (2013) - S03E13.mp4 ...  ← «Season 3 Part 2», ep. 1
+└── Peliculas/                               ← biblioteca de películas
+    └── A Silent Voice (2016) {tmdb-378064}/A Silent Voice (2016) {tmdb-378064}.mp4
 ```
 
 ## Webs soportadas
@@ -99,7 +102,7 @@ animedl add -b URL1 URL2
 # Ya tengo hasta el 100: registrar y descargar solo del 101 en adelante
 animedl add https://jkanime.net/black-clover/ --from-episode 101
 
-# Que la carpeta sea "Black Clover" Season 02 en vez de "Black Clover 2nd Season" Season 01
+# Forzar nombre de carpeta y temporada (normalmente se deducen solos, ver más abajo)
 animedl add https://jkanime.net/black-clover-2nd-season/ --name "Black Clover" --season 2
 
 animedl list                         # series, estado y cuántos episodios hay descargados
@@ -163,6 +166,46 @@ Formas de programarlo (elige una):
 Si dos procesos coinciden (por ejemplo, el daemon y tú a mano), no pasa nada: cada episodio se
 "reserva" en la base de datos antes de descargarse.
 
+## Nombres para Plex y Jellyfin
+
+Los nombres siguen las guías oficiales de
+[Plex](https://support.plex.tv/articles/naming-and-organizing-your-tv-show-files/) y
+[Jellyfin](https://jellyfin.org/docs/general/server/media/shows):
+`Título (Año) {tmdb-ID}/Season NN/Título (Año) - SNNEMM`. El `{tmdb-ID}` en la carpeta hace que los
+dos reconozcan la serie sin depender del título; Jellyfin acepta esa misma forma con llaves.
+
+Al añadir una serie, `animedl` la identifica en [AniList](https://anilist.co) (animeflv.ba enlaza
+su ficha; en las demás webs se busca por título). Después usa las
+[listas de IDs de Fribb](https://github.com/Fribb/anime-lists) para saber su ID de TMDB, en qué
+temporada de TMDB cae y desde qué episodio. TMDB es el orden por defecto de Plex y el proveedor
+por defecto de Jellyfin. Por eso:
+
+- Las secuelas van dentro de la serie original con su número de temporada, y las temporadas
+  partidas en dos llevan el número de episodio que les da TMDB (Attack on Titan S3 Part 2
+  empieza en el S03E13).
+- Las películas van a `Peliculas/` con el formato de película.
+- Los OVA que TMDB considera especiales y los episodios «12.5» van a `Season 00`.
+- Las series largas que TMDB no divide en temporadas, como One Piece, usan `{tvdb-ID}` y
+  numeración absoluta. **En Plex** elige para esa serie *Episode ordering → TheTVDB (Absolute)*
+  (Editar → Avanzado). **En Jellyfin** instala el plugin de TheTVDB y elige el orden «Absolute».
+
+En Plex/Jellyfin crea **dos bibliotecas**: una de series apuntando a `Series/` y otra de películas
+apuntando a `Peliculas/`.
+
+Comandos:
+
+```bash
+animedl list                    # debajo de cada serie, cómo la verán Plex/Jellyfin
+animedl rename --dry-run        # qué ficheros ya descargados se moverían al formato nuevo
+animedl rename                  # moverlos (identifica antes las series que no lo estén)
+animedl identify 3 --anilist 101759    # corregir una identificación (ID de anilist.co/anime/ID)
+animedl edit 3 --season 2 --id tmdb-83097 --year 2019   # o a mano; mueve los ficheros
+```
+
+Si AniList no encuentra la serie, o no está en las listas de IDs, el nombre sale de la web (por
+ejemplo, «X 2nd Season» → `X/Season 02`) sin ID. Plex/Jellyfin la buscarán entonces por el título.
+Con la identificación desactivada (`identify = false`) se usa siempre el título de la web.
+
 ## Configuración
 
 Copia `config.example.toml` a `config.toml`, o a `~/.config/animedl/config.toml`; con Docker,
@@ -176,7 +219,8 @@ a `data/config.toml`. Cada opción se puede dar también como variable de entorn
 | `languages` | `["sub", "lat", "cast"]` | versiones aceptadas, en orden de preferencia |
 | `servers` | okru, streamwish, vidhide, … | orden en que se prueban los servidores |
 | `schedule` | `0 4 * * 1` | cron de `animedl daemon` |
-| `filename_template` | `{series}/Season {season:02d}/{series} - S{season:02d}E{episode}` | nombre de los ficheros |
+| `filename_template`, `movie_template` | ver [Nombres para Plex y Jellyfin](#nombres-para-plex-y-jellyfin) | nombre de los ficheros |
+| `identify`, `title_language` | `true`, `english` | identificar en AniList/TMDB; títulos en inglés o romaji |
 | `cookies_file`, `user_agent` | — | para webs con Cloudflare (ver abajo) |
 
 ## Diagnóstico
@@ -214,6 +258,8 @@ src/animedl/
 ├── cli.py          comandos (Typer)
 ├── service.py      añadir series, sincronizar, elegir servidor, descargar
 ├── db.py           SQLite: tablas series y episodes
+├── metadata.py     identificación en AniList + IDs de TMDB/TVDB (temporada, desfase, película)
+├── naming.py       nombres de ficheros para Plex/Jellyfin
 ├── sites/          un extractor por web (episodios + reproductores de cada episodio)
 ├── hosts/          de reproductor embebido a enlace de vídeo (desempaquetador P.A.C.K.E.R.,
 │                   streamtape, voe, dood, mega...; el genérico cubre los basados en JWPlayer)

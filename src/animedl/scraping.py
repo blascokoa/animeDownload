@@ -115,6 +115,42 @@ def lang_from_label(label: str | None) -> str | None:
     return None
 
 
+_ANILIST_ID = re.compile(r"anilist\.co/anime/(\d+)|anilistcdn/media/anime/cover/\w+/[a-z]*(\d+)")
+_MAL_ID = re.compile(r"myanimelist\.net/anime/(\d+)")
+
+
+def anilist_id_in(text: str | None) -> int | None:
+    m = _ANILIST_ID.search(text or "")
+    return int(m.group(1) or m.group(2)) if m else None
+
+
+def mal_id_in(text: str | None) -> int | None:
+    m = _MAL_ID.search(text or "")
+    return int(m.group(1)) if m else None
+
+
+def movie_from_text(text: str | None) -> bool | None:
+    """ "Película"/"Movie" -> True, "Serie"/"TV"/"OVA"... -> False, anything else -> None."""
+    t = fold(text or "")
+    if re.search(r"pelicula|\bmovie\b|\bfilm\b", t):
+        return True
+    if re.search(r"\bserie|\btv\b|\banime\b|\bova\b|\bona\b|especial|special", t):
+        return False
+    return None
+
+
+def detect_movie(soup: BeautifulSoup) -> bool | None:
+    """Look at the text after a "Tipo:"/"Type:" label."""
+    for label in soup.find_all(string=re.compile(r"^\s*(?:tipo|type)\s*:?\s*$", re.I)):
+        for node in (label.parent, label.parent.parent if label.parent else None):
+            if (
+                node is not None
+                and (found := movie_from_text(node.get_text(" ", strip=True))) is not None
+            ):
+                return found
+    return None
+
+
 def status_from(soup: BeautifulSoup, selectors: list[str]) -> SeriesStatus:
     """Status from the first selector whose text says something meaningful.
 

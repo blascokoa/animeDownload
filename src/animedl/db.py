@@ -11,7 +11,7 @@ from pathlib import Path
 
 from animedl.models import EpisodeRef, EpisodeStatus, Monitor, SeriesStatus
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS series (
@@ -50,6 +50,16 @@ CREATE TABLE IF NOT EXISTS episodes (
 CREATE INDEX IF NOT EXISTS idx_episodes_status ON episodes(status);
 """
 
+# v2: how the series is named for Plex/Jellyfin (filled by `identify`, see metadata.py)
+MIGRATION_2 = """
+ALTER TABLE series ADD COLUMN media_kind TEXT NOT NULL DEFAULT 'tv';
+ALTER TABLE series ADD COLUMN year INTEGER;
+ALTER TABLE series ADD COLUMN id_tag TEXT;
+ALTER TABLE series ADD COLUMN episode_offset INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE series ADD COLUMN anilist_id INTEGER;
+ALTER TABLE series ADD COLUMN identified_at TEXT;
+"""
+
 
 def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
@@ -68,6 +78,16 @@ class Series:
     created_at: str
     last_checked_at: str | None
     last_new_episode_at: str | None
+    media_kind: str = "tv"
+    year: int | None = None
+    id_tag: str | None = None
+    episode_offset: int = 0
+    anilist_id: int | None = None
+    identified_at: str | None = None
+
+    @property
+    def is_movie(self) -> bool:
+        return self.media_kind == "movie"
 
     @property
     def should_check(self) -> bool:
@@ -148,6 +168,9 @@ class Database:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if version < 1:
             self.conn.executescript(SCHEMA)
+        if version < 2:
+            self.conn.executescript(MIGRATION_2)
+        if version < SCHEMA_VERSION:
             self.conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     # ----------------------------------------------------------------- series
@@ -298,6 +321,12 @@ class Database:
                                    last_error=NULL, updated_at=?, downloaded_at=?
                WHERE id=?""",
             (file_path, file_size, server, ts, ts, episode_id),
+        )
+
+    def move_file(self, episode_id: int, file_path: str) -> None:
+        self.conn.execute(
+            "UPDATE episodes SET file_path=?, updated_at=? WHERE id=?",
+            (file_path, now(), episode_id),
         )
 
     def mark_failed(self, episode_id: int, error: str, *, count_attempt: bool = True) -> None:

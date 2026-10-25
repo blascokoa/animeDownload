@@ -91,6 +91,7 @@ def settings(tmp_path: Path) -> Settings:
         database=tmp_path / "db" / "animedl.db",
         request_delay=0,
         min_file_size_mb=0,
+        identify=False,  # no AniList lookups in unit tests
     )
 
 

@@ -47,6 +47,10 @@ class SeriesInfo:
     title: str
     status: SeriesStatus = SeriesStatus.UNKNOWN
     episodes: list[EpisodeRef] = field(default_factory=list)
+    # Hints to identify the anime (see metadata.py), when the site provides them
+    anilist_id: int | None = None
+    mal_id: int | None = None
+    is_movie: bool | None = None
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,7 @@ import pytest
 
 from animedl.config import load_settings
 from animedl.models import SeriesStatus
-from animedl.naming import episode_basename, format_episode, safe_name
+from animedl.naming import NameParts, episode_basename, format_episode, movie_basename, safe_name
 from animedl.scraping import detect_status, extract_js_value, lang_from_label, page_title
 
 
@@ -17,13 +17,27 @@ def test_safe_name():
 def test_episode_formatting():
     assert format_episode(5) == "05"
     assert format_episode(170) == "170"
-    assert format_episode(12.5) == "12.5"
-    assert episode_basename(
-        "{series}/Season {season:02d}/{series} - S{season:02d}E{episode}",
-        series="Black Clover",
-        season=1,
-        number=7,
-    ) == Path("Black Clover/Season 01/Black Clover - S01E07")
+    parts = NameParts("Black Clover", 2017, "{tmdb-73223}")
+    template = "Series/{series}{ids}/Season {season:02d}/{series} - S{season:02d}E{episode}"
+    assert episode_basename(template, parts, season=2, number=7) == Path(
+        "Series/Black Clover (2017) {tmdb-73223}/Season 02/Black Clover (2017) - S02E07"
+    )
+    # half episodes go to the specials season
+    assert episode_basename(template, parts, season=1, number=12.5) == Path(
+        "Series/Black Clover (2017) {tmdb-73223}/Season 00/Black Clover (2017) - S00E125"
+    )
+    assert episode_basename(template, NameParts("Re:Zero"), season=1, number=1) == Path(
+        "Series/Re Zero/Season 01/Re Zero - S01E01"
+    )
+
+
+def test_movie_naming():
+    parts = NameParts("A Silent Voice", 2016, "{tmdb-378064}")
+    template = "Peliculas/{series}{ids}/{series}{ids}"
+    assert movie_basename(template, parts) == Path(
+        "Peliculas/A Silent Voice (2016) {tmdb-378064}/A Silent Voice (2016) {tmdb-378064}"
+    )
+    assert movie_basename(template, parts, part=2).name.endswith("{tmdb-378064} - pt2")
 
 
 @pytest.mark.parametrize(

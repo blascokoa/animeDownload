@@ -15,6 +15,7 @@ import re
 from animedl.models import EpisodeRef, SeriesInfo, VideoSource
 from animedl.scraping import (
     absolute,
+    detect_movie,
     extract_js_value,
     find_episode_links,
     find_player_links,
@@ -70,7 +71,13 @@ class AnimeOnlineExtractor(SiteExtractor):
         episodes = [refs[k] for k in sorted(refs)] or find_episode_links(html, url)
         if not episodes:
             raise SiteError(f"No se encontraron episodios en {url}")
-        return SeriesInfo(url=url, title=title or "Sin título", status=status, episodes=episodes)
+        return SeriesInfo(
+            url=url,
+            title=title or "Sin título",
+            status=status,
+            episodes=episodes,
+            is_movie=detect_movie(soup),
+        )
 
     def get_sources(self, episode: EpisodeRef) -> list[VideoSource]:
         resp = self.http.get(episode.url)

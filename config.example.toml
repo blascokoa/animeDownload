@@ -28,10 +28,16 @@ queue_interval = 60
 # Intentos por episodio antes de rendirse (se reintenta en cada comprobación semanal)
 max_attempts = 5
 
-# Ruta de cada episodio dentro de download_dir (sin extensión).
-# Variables: {series}, {season}, {episode}. El formato por defecto lo entienden Plex y Jellyfin.
-filename_template = "{series}/Season {season:02d}/{series} - S{season:02d}E{episode}"
+# Nombres según las guías de Plex y Jellyfin (rutas dentro de download_dir, sin extensión).
+# Variables: {series} = "Título (Año)", {ids} = " {tmdb-123}" si se identificó, {title},
+# {year}, {season}, {episode}. Añade "Series" y "Peliculas" como dos bibliotecas distintas.
+filename_template = "Series/{series}{ids}/Season {season:02d}/{series} - S{season:02d}E{episode}"
+movie_template = "Peliculas/{series}{ids}/{series}{ids}"
 episode_padding = 2
+
+# Identificar cada anime en AniList + listas de IDs de TMDB/TVDB (título, año, temporada).
+identify = true
+title_language = "english"   # o "romaji"
 
 # Si una web pide el desafío de Cloudflare: exporta las cookies de tu navegador
 # (extensión "Get cookies.txt LOCALLY") y pon aquí el mismo User-Agent que ese navegador.

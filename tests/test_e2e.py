@@ -84,6 +84,7 @@ def test_add_then_weekly_update(fake_site, tmp_path, monkeypatch):
     monkeypatch.setenv("ANIMEDL_DATABASE", str(tmp_path / "animedl.db"))
     monkeypatch.setenv("ANIMEDL_REQUEST_DELAY", "0")
     monkeypatch.setenv("ANIMEDL_MIN_FILE_SIZE_MB", "0")
+    monkeypatch.setenv("ANIMEDL_IDENTIFY", "0")
     monkeypatch.setenv("COLUMNS", "200")
     monkeypatch.setattr(state, "_settings", None)
     runner = CliRunner()
@@ -91,7 +92,7 @@ def test_add_then_weekly_update(fake_site, tmp_path, monkeypatch):
     _site(root, base, [1, 2])
     result = runner.invoke(app, ["add", f"{base}/anime/serie-local/"])
     assert result.exit_code == 0, result.output
-    season = downloads / "Serie Local" / "Season 01"
+    season = downloads / "Series" / "Serie Local" / "Season 01"
     assert sorted(p.name for p in season.iterdir()) == [
         "Serie Local - S01E01.mp4",
         "Serie Local - S01E02.mp4",
@@ -114,6 +115,7 @@ def test_background_add_is_picked_up_by_the_queue(fake_site, tmp_path, monkeypat
     monkeypatch.setenv("ANIMEDL_DATABASE", str(tmp_path / "animedl.db"))
     monkeypatch.setenv("ANIMEDL_REQUEST_DELAY", "0")
     monkeypatch.setenv("ANIMEDL_MIN_FILE_SIZE_MB", "0")
+    monkeypatch.setenv("ANIMEDL_IDENTIFY", "0")
     monkeypatch.setattr(state, "_settings", None)
     _site(root, base, [1, 2])
 
@@ -123,5 +125,5 @@ def test_background_add_is_picked_up_by_the_queue(fake_site, tmp_path, monkeypat
     assert not downloads.exists()
 
     process_queue()  # what the daemon runs every minute
-    season = downloads / "Serie Local" / "Season 01"
+    season = downloads / "Series" / "Serie Local" / "Season 01"
     assert len(list(season.glob("*.mp4"))) == 2

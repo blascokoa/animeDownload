@@ -83,7 +83,11 @@ def test_add_and_download_everything(service, settings):
     report = service.download_pending([series])
     assert len(report.downloaded) == 3 and not report.failed
     expected = (
-        settings.download_dir / "Serie de prueba" / "Season 01" / "Serie de prueba - S01E02.mp4"
+        settings.download_dir
+        / "Series"
+        / "Serie de prueba"
+        / "Season 01"
+        / "Serie de prueba - S01E02.mp4"
     )
     assert expected.is_file()
     assert {e.status for e in service.db.episodes(series.id)} == {EpisodeStatus.DONE}
@@ -158,7 +162,11 @@ def test_from_episode_skips_older_ones(service):
 
 def test_existing_files_are_adopted(service, settings):
     existing = (
-        settings.download_dir / "Serie de prueba" / "Season 01" / "Serie de prueba - S01E01.mkv"
+        settings.download_dir
+        / "Series"
+        / "Serie de prueba"
+        / "Season 01"
+        / "Serie de prueba - S01E01.mkv"
     )
     existing.parent.mkdir(parents=True)
     existing.write_bytes(b"ya lo tenia")
@@ -190,7 +198,9 @@ def test_adding_twice_syncs_instead_of_duplicating(service, site):
 def test_season_override_and_name(service, settings):
     series, _ = service.add_series(URL, season=2, name="Mi Serie")
     service.download_pending([series])
-    assert (settings.download_dir / "Mi Serie" / "Season 02" / "Mi Serie - S02E03.mp4").is_file()
+    assert (
+        settings.download_dir / "Series" / "Mi Serie" / "Season 02" / "Mi Serie - S02E03.mp4"
+    ).is_file()
 
 
 def test_rank_sources():
