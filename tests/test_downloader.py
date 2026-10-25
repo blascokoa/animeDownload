@@ -87,3 +87,40 @@ def test_short_clips_are_rejected(media_server, settings, tmp_path):
 def test_missing_file_raises(media_server, settings, tmp_path):
     with pytest.raises(DownloadError):
         Downloader(settings).download(Stream(url=f"{media_server}/nope.mp4"), tmp_path / "ep")
+
+
+class _Recorder:
+    def __init__(self):
+        self.events = []
+
+    def start(self, label):
+        self.events.append(("start", label))
+
+    def update(self, done, total, speed):
+        self.events.append(("update", done, total))
+
+    def finish(self):
+        self.events.append(("finish",))
+
+
+def test_progress_is_reported(media_server, settings, tmp_path):
+    rec = _Recorder()
+    Downloader(settings, progress=rec).download(
+        Stream(url=f"{media_server}/ep.mp4"), tmp_path / "Serie - S01E01"
+    )
+    assert rec.events[0] == ("start", "Serie - S01E01")
+    assert rec.events[-1] == ("finish",)
+    updates = [e for e in rec.events if e[0] == "update"]
+    assert updates and updates[-1][1] == updates[-1][2]  # finished at 100%
+
+
+def test_log_progress_format(caplog):
+    import logging
+
+    from animedl.progress import LogProgress
+
+    lp = LogProgress(interval=0)
+    lp.start("Serie - S01E01")
+    with caplog.at_level(logging.INFO, logger="animedl.progress"):
+        lp.update(512 * 1024 * 1024, 1024 * 1024 * 1024, 3 * 1024 * 1024)
+    assert "Serie - S01E01: 50% · 512.0 MB de 1.0 GB · 3.0 MB/s" in caplog.text

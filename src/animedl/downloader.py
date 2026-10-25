@@ -13,6 +13,7 @@ import yt_dlp
 
 from animedl.config import Settings
 from animedl.models import Stream
+from animedl.progress import ProgressReporter
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class _Throttled:
 
 
 class Downloader:
-    def __init__(self, settings: Settings, *, progress: bool = False):
+    def __init__(self, settings: Settings, *, progress: ProgressReporter | None = None):
         self.settings = settings
         self.progress = progress
 
@@ -62,12 +63,24 @@ class Downloader:
         """
         base.parent.mkdir(parents=True, exist_ok=True)
         beat = _Throttled(heartbeat)
-        if stream.kind == "mega":
-            path = self._mega(stream, base, beat)
-        else:
-            path = self._ytdlp(stream, base, beat)
+        if self.progress:
+            self.progress.start(base.name)
+        try:
+            if stream.kind == "mega":
+                path = self._mega(stream, base, beat)
+            else:
+                path = self._ytdlp(stream, base, beat)
+        finally:
+            if self.progress:
+                self.progress.finish()
         self._validate(path)
         return path
+
+    def _on_progress(self, info: dict, beat: _Throttled) -> None:
+        beat()
+        if self.progress and info.get("status") == "downloading":
+            total = info.get("total_bytes") or info.get("total_bytes_estimate")
+            self.progress.update(info.get("downloaded_bytes") or 0, total, info.get("speed"))
 
     def _ytdlp(self, stream: Stream, base: Path, beat: _Throttled) -> Path:
         remove_partials(base)
@@ -88,9 +101,9 @@ class Downloader:
             "overwrites": True,
             "quiet": True,
             "no_warnings": True,
-            "noprogress": not self.progress,
+            "noprogress": True,  # progress is reported through the hook below
             "logger": _YtdlpLogger(),
-            "progress_hooks": [lambda _: beat()],
+            "progress_hooks": [lambda info: self._on_progress(info, beat)],
         }
         if self.settings.cookies_file:
             opts["cookiefile"] = str(self.settings.cookies_file)

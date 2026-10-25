@@ -9,7 +9,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 from typer.testing import CliRunner
 
-from animedl.cli import app, state
+from animedl.cli import app, process_queue, state
 from tests.conftest import pack_js
 
 pytestmark = pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg no instalado")
@@ -105,3 +105,23 @@ def test_add_then_weekly_update(fake_site, tmp_path, monkeypatch):
 
     result = runner.invoke(app, ["list"])
     assert "Serie Local" in result.output and "3/3" in result.output
+
+
+def test_background_add_is_picked_up_by_the_queue(fake_site, tmp_path, monkeypatch):
+    root, base = fake_site
+    downloads = tmp_path / "disco"
+    monkeypatch.setenv("ANIMEDL_DOWNLOAD_DIR", str(downloads))
+    monkeypatch.setenv("ANIMEDL_DATABASE", str(tmp_path / "animedl.db"))
+    monkeypatch.setenv("ANIMEDL_REQUEST_DELAY", "0")
+    monkeypatch.setenv("ANIMEDL_MIN_FILE_SIZE_MB", "0")
+    monkeypatch.setattr(state, "_settings", None)
+    _site(root, base, [1, 2])
+
+    result = CliRunner().invoke(app, ["add", "--background", f"{base}/anime/serie-local/"])
+    assert result.exit_code == 0, result.output
+    assert "cola" in result.output
+    assert not downloads.exists()
+
+    process_queue()  # what the daemon runs every minute
+    season = downloads / "Serie Local" / "Season 01"
+    assert len(list(season.glob("*.mp4"))) == 2

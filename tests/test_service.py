@@ -205,3 +205,14 @@ def test_rank_sources():
     ]
     ranked = rank_sources(sources, ["sub", "lat"], ["okru", "streamwish", "mega"])
     assert [s.url for s in ranked] == ["u3", "u1", "u2", "u6"]
+
+
+def test_queue_mode_leaves_failed_episodes_for_the_weekly_check(service, site):
+    site.fail_sources_for = {2}
+    series, _ = service.add_series(URL)
+    service.download_pending([series])  # ep 2 fails once
+    site.fail_sources_for = set()
+    report = service.download_pending([series], include_failed=False)
+    assert report.downloaded == []
+    report = service.download_pending([series])
+    assert [e.number for _, e, _ in report.downloaded] == [2]

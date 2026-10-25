@@ -21,6 +21,7 @@ from animedl.db import Database, Series
 from animedl.downloader import Downloader
 from animedl.http import FetchError, HttpClient
 from animedl.models import EpisodeRef, EpisodeStatus, Monitor, format_number
+from animedl.progress import LogProgress, RichProgress
 from animedl.service import AnimeService, Report, rank_sources
 from animedl.sites import SiteError, extractor_for
 
@@ -31,7 +32,14 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,
 )
 console = Console()
+err_console = Console(stderr=True)
 log = logging.getLogger("animedl")
+
+INTERRUPTED = (
+    "[yellow]Interrumpido.[/yellow] El episodio a medias vuelve a «pendiente» (sin contar como "
+    "intento fallido) y se empezará de cero: lo bajará el daemon si está en marcha, o la próxima "
+    "vez que ejecutes `download`. Para no descargarlo: `mark <serie> --as skipped -e <n>`."
+)
 
 
 class State:
@@ -53,7 +61,7 @@ def setup_logging(verbose: bool) -> None:
     level = logging.DEBUG if verbose else logging.INFO
     if sys.stderr.isatty():
         handler: logging.Handler = RichHandler(
-            console=Console(stderr=True), show_path=False, rich_tracebacks=True
+            console=err_console, show_path=False, rich_tracebacks=True
         )
         fmt = "%(message)s"
     else:
@@ -61,7 +69,8 @@ def setup_logging(verbose: bool) -> None:
         fmt = "%(asctime)s %(levelname)-7s %(message)s"
     logging.basicConfig(level=logging.WARNING, format=fmt, handlers=[handler], force=True)
     logging.getLogger("animedl").setLevel(level)
-    logging.getLogger("apscheduler").setLevel(logging.INFO if verbose else logging.WARNING)
+    # "skipped: maximum number of running instances" is expected while the queue downloads
+    logging.getLogger("apscheduler").setLevel(logging.INFO if verbose else logging.ERROR)
 
 
 @app.callback()
@@ -79,13 +88,16 @@ def main(
 
 
 @contextmanager
-def open_service(*, progress: bool = True, dump_dir: Path | None = None):
+def open_service(*, dump_dir: Path | None = None):
     settings = state.settings
     db = Database(settings.database)
+    progress = RichProgress(err_console) if err_console.is_terminal else LogProgress()
     try:
         http = HttpClient(settings, dump_dir=dump_dir)
-        downloader = Downloader(settings, progress=progress and sys.stdout.isatty())
-        yield AnimeService(settings, db, http, downloader)
+        yield AnimeService(settings, db, http, Downloader(settings, progress=progress))
+    except KeyboardInterrupt:
+        console.print(INTERRUPTED)
+        raise typer.Exit(130) from None
     finally:
         db.close()
 
@@ -146,7 +158,15 @@ def print_report(report: Report) -> None:
 @app.command()
 def add(
     urls: Annotated[list[str], typer.Argument(help="URL(s) de la serie")],
-    no_download: Annotated[bool, typer.Option("--no-download", help="Solo registrar")] = False,
+    background: Annotated[
+        bool,
+        typer.Option(
+            "--background",
+            "-b",
+            "--no-download",
+            help="Solo registrar; el daemon la descarga en segundo plano",
+        ),
+    ] = False,
     monitor: Annotated[Monitor, typer.Option(help="Cuándo buscar episodios nuevos")] = Monitor.AUTO,
     season: Annotated[int | None, typer.Option(help="Forzar número de temporada")] = None,
     name: Annotated[str | None, typer.Option(help="Nombre de la carpeta")] = None,
@@ -175,7 +195,12 @@ def add(
                 f"{counts.get('done', 0)} ya descargados"
             )
             added.append(series)
-        if added and not no_download:
+        if added and background:
+            console.print(
+                "Queda en la cola: si el daemon está en marcha (`docker compose up -d`) empezará a "
+                "descargarla en menos de un minuto. Progreso: `docker compose logs -f`."
+            )
+        elif added:
             print_report(service.download_pending(added))
         if errors:
             raise typer.Exit(1)
@@ -396,15 +421,31 @@ def daemon(
         bool, typer.Option("--run-now", help="Ejecutar también al arrancar")
     ] = False,
 ) -> None:
-    """Se queda en marcha y ejecuta `update` según el calendario (semanal por defecto)."""
+    """Se queda en marcha: `update` según el calendario (semanal por defecto) y, cada minuto,
+    descarga lo que haya pendiente (p. ej. series añadidas con `add --background`)."""
     from animedl.scheduler import run_daemon
 
     def job() -> None:
         log.info("Comprobando episodios nuevos...")
-        with open_service(progress=False) as service:
+        with open_service() as service:
             print_report(service.update())
 
-    run_daemon(job, cron or state.settings.schedule, run_now=run_now)
+    settings = state.settings
+    run_daemon(
+        job,
+        cron or settings.schedule,
+        run_now=run_now,
+        queue_job=process_queue,
+        queue_interval=settings.queue_interval,
+    )
+
+
+def process_queue() -> None:
+    """Download pending episodes (failed ones wait for the weekly check)."""
+    with open_service() as service:
+        report = service.download_pending(service.db.list_series(), include_failed=False)
+        if report.downloaded or report.failed or report.errors:
+            print_report(report)
 
 
 @app.command()

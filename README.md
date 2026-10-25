@@ -57,15 +57,18 @@ cp .env.example .env        # edita ANIME_DIR (tu disco) y PUID/PGID (salida de 
 docker compose up -d --build
 ```
 
-El contenedor se queda en marcha y comprueba las series en emisión cada lunes a las 04:00
-(`ANIMEDL_SCHEDULE` en `.env`). La base de datos queda en `./data` y los vídeos en `ANIME_DIR`.
-Para darle órdenes usa `./animedl.sh`, que equivale a `docker compose run --rm animedl ...`:
+El contenedor se queda en marcha. Cada minuto descarga lo que haya pendiente, y cada lunes a
+las 04:00 (`ANIMEDL_SCHEDULE` en `.env`) busca episodios nuevos de las series en emisión. La
+base de datos queda en `./data` y los vídeos en `ANIME_DIR`. Para darle órdenes usa
+`./animedl.sh`: si el daemon está en marcha ejecuta el comando dentro de él, y si no, en un
+contenedor temporal.
 
 ```bash
-./animedl.sh add https://animeflv.ba/anime/the-promised-neverland-mrwxzt
+./animedl.sh add -b https://animeflv.ba/anime/a-silent-voice-il9eem   # en segundo plano
+docker compose logs -f                                                # ver el progreso
+./animedl.sh add https://animeflv.ba/anime/the-promised-neverland-mrwxzt  # en primer plano
 ./animedl.sh list
 ./animedl.sh probe https://animeflv.ba/anime/the-promised-neverland-mrwxzt -e 1 --resolve
-docker compose logs -f      # ver qué hace el programador
 docker compose up -d --build   # tras actualizar el código (git pull)
 ```
 
@@ -90,8 +93,8 @@ Para desarrollar: `uv sync` y luego `uv run animedl ...`.
 # Añadir una serie y descargar todo lo que tenga
 animedl add https://animeflv.ba/anime/the-promised-neverland-mrwxzt
 
-# Varias a la vez, solo registrarlas (descargar luego)
-animedl add URL1 URL2 --no-download
+# En segundo plano: solo la registra y la descarga el daemon (cada minuto mira la cola)
+animedl add -b URL1 URL2
 
 # Ya tengo hasta el 100: registrar y descargar solo del 101 en adelante
 animedl add https://jkanime.net/black-clover/ --from-episode 101
@@ -116,6 +119,19 @@ animedl config                       # ver la configuración efectiva
 Si añades una serie que ya existe, solo busca episodios nuevos. Si un episodio ya está en el
 disco con el nombre esperado (con cualquier extensión de vídeo), se marca como descargado y no
 se vuelve a bajar.
+
+### Primer plano, segundo plano y Ctrl+C
+
+- `add URL` descarga en primer plano, con barra de progreso.
+- `add -b URL` (o `--background`) solo registra la serie. El daemon (`animedl daemon` o el
+  contenedor de Docker) revisa la cola cada minuto (`queue_interval`) y la descarga. El progreso
+  se ve en sus logs.
+- **Ctrl+C** durante una descarga en primer plano: el episodio vuelve a «pendiente» sin contar
+  como intento fallido. Lo que se había bajado se descarta y la próxima vez empieza de cero (lo
+  hará el daemon si está en marcha). Si no quieres ese episodio:
+  `animedl mark SERIE --as skipped -e N`.
+- Si el contenedor se para a mitad de una descarga, ese episodio vuelve a la cola a los 30
+  minutos.
 
 ## Episodios nuevos cada semana
 

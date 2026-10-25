@@ -22,6 +22,9 @@ servers = [
 # Calendario de `animedl daemon` (cron). Por defecto lunes a las 04:00.
 schedule = "0 4 * * 1"
 
+# Cada cuántos segundos mira el daemon si hay descargas pendientes (p. ej. de `add -b`)
+queue_interval = 60
+
 # Intentos por episodio antes de rendirse (se reintenta en cada comprobación semanal)
 max_attempts = 5
 

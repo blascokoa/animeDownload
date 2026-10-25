@@ -46,6 +46,8 @@ class Settings:
     servers: list[str] = field(default_factory=lambda: list(DEFAULT_SERVERS))
     # Cron expression (min hour day month weekday) for `animedl daemon`. Default: Mondays 04:00.
     schedule: str = "0 4 * * 1"
+    # Seconds between checks of the download queue in `animedl daemon`.
+    queue_interval: int = 60
     max_attempts: int = 5
     # Path of each episode relative to download_dir, without extension.
     filename_template: str = "{series}/Season {season:02d}/{series} - S{season:02d}E{episode}"

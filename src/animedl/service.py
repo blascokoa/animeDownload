@@ -158,11 +158,16 @@ class AnimeService:
         *,
         episode_filter: Callable[[Episode], bool] | None = None,
         retry_failed: bool = False,
+        include_failed: bool = True,
     ) -> Report:
+        """Download pending episodes; failed ones too (up to max_attempts) if include_failed."""
         report = Report()
         self.db.reset_stale_downloads()
+        statuses = [EpisodeStatus.PENDING]
+        if include_failed:
+            statuses.append(EpisodeStatus.FAILED)
         for series in series_list:
-            report.merge(self._download_series(series, episode_filter, retry_failed))
+            report.merge(self._download_series(series, episode_filter, retry_failed, statuses))
         return report
 
     def _download_series(
@@ -170,12 +175,15 @@ class AnimeService:
         series: Series,
         episode_filter: Callable[[Episode], bool] | None,
         retry_failed: bool,
+        statuses: list[EpisodeStatus],
     ) -> Report:
         report = Report()
+        if not self.db.episodes(series.id, statuses):
+            return report
         self.adopt_existing_files(series)
         candidates = [
             ep
-            for ep in self.db.episodes(series.id, [EpisodeStatus.PENDING, EpisodeStatus.FAILED])
+            for ep in self.db.episodes(series.id, statuses)
             if (
                 ep.status == EpisodeStatus.PENDING
                 or retry_failed
