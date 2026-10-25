@@ -134,12 +134,15 @@ se vuelve a bajar.
 
 ### Primer plano, segundo plano y Ctrl+C
 
-- `add URL` descarga en primer plano, con barra de progreso.
+- Se descargan **3 episodios a la vez** (`parallel_downloads`; en Docker
+  `ANIMEDL_PARALLEL_DOWNLOADS` en `.env`), de la misma serie o de varias. Muchos servidores
+  limitan la velocidad de cada conexión, así que en paralelo se tarda mucho menos.
+- `add URL` descarga en primer plano, con una barra de progreso por episodio.
 - `add -b URL` (o `--background`) solo registra la serie. El daemon (`animedl daemon` o el
   contenedor de Docker) revisa la cola cada minuto (`queue_interval`) y la descarga. El progreso
   se ve en sus logs.
-- **Ctrl+C** durante una descarga en primer plano: el episodio vuelve a «pendiente» sin contar
-  como intento fallido. Lo que se había bajado se descarta y la próxima vez empieza de cero (lo
+- **Ctrl+C** durante una descarga en primer plano: los episodios en curso vuelven a «pendiente»
+  sin contar como intento fallido. Lo que se había bajado se descarta y la próxima vez empieza de cero (lo
   hará el daemon si está en marcha). Si no quieres ese episodio:
   `animedl mark SERIE --as skipped -e N`.
 - Si el contenedor se para a mitad de una descarga, ese episodio vuelve a la cola a los 30
@@ -230,6 +233,7 @@ a `data/config.toml`. Cada opción se puede dar también como variable de entorn
 | `languages` | `["sub", "lat", "cast"]` | versiones aceptadas, en orden de preferencia |
 | `servers` | okru, streamwish, vidhide, … | orden en que se prueban los servidores |
 | `schedule` | `0 4 * * 1` | cron de `animedl daemon` |
+| `parallel_downloads` | `3` | episodios que se descargan a la vez |
 | `filename_template`, `movie_template` | ver [Nombres para Plex y Jellyfin](#nombres-para-plex-y-jellyfin) | nombre de los ficheros |
 | `identify`, `title_language` | `true`, `english` | identificar en AniList/TMDB; títulos en inglés o romaji |
 | `cookies_file`, `user_agent` | — | para webs con Cloudflare (ver abajo) |

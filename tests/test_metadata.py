@@ -323,3 +323,23 @@ def test_old_templates_with_folder_prefix_still_work(tmp_path):
     s = load_settings(cfg)
     assert s.filename_template.startswith("{series}{ids}/Season")
     assert s.movie_template == "{series}{ids}/{series}{ids}"
+
+
+def test_rename_relinks_files_already_in_place_and_reports_missing(service, settings, caplog):
+    settings.identify = False
+    series, _ = service.add_series(URL)
+    service.download_pending([series])
+    eps = service.db.episodes(series.id)
+    # ep 1: the user moved it to a different folder and back into the expected place
+    expected = service.episode_path(series, eps[0])
+    moved = expected.with_name(expected.name + ".mp4")
+    service.db.move_file(eps[0].id, "/ya/no/existe/ep1.mp4")
+    # ep 2: gone for good
+    Path(eps[1].file_path).unlink()
+
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="animedl.service"):
+        assert service.rename_files(service.db.get_series(series.id)) == []
+    assert service.db.get_episode(eps[0].id).file_path == str(moved)
+    assert "no se encuentra" in caplog.text and "--as pending -e 2" in caplog.text

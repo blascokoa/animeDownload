@@ -30,6 +30,9 @@ queue_interval = 60
 # Intentos por episodio antes de rendirse (se reintenta en cada comprobación semanal)
 max_attempts = 5
 
+# Episodios que se descargan a la vez (muchos servidores limitan la velocidad por conexión)
+parallel_downloads = 3
+
 # Nombres según las guías de Plex y Jellyfin (rutas dentro de series_dir / movies_dir, sin
 # extensión). Variables: {series} = "Título (Año)", {ids} = " {tmdb-123}" si se identificó,
 # {title}, {year}, {season}, {episode}.

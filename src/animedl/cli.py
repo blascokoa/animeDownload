@@ -37,9 +37,9 @@ err_console = Console(stderr=True)
 log = logging.getLogger("animedl")
 
 INTERRUPTED = (
-    "[yellow]Interrumpido.[/yellow] El episodio a medias vuelve a «pendiente» (sin contar como "
-    "intento fallido) y se empezará de cero: lo bajará el daemon si está en marcha, o la próxima "
-    "vez que ejecutes `download`. Para no descargarlo: `mark <serie> --as skipped -e <n>`."
+    "[yellow]Interrumpido.[/yellow] Los episodios a medias vuelven a «pendiente» (sin contar como "
+    "intento fallido) y empezarán de cero: los bajará el daemon si está en marcha, o la próxima "
+    "vez que ejecutes `download`. Para no descargarlos: `mark <serie> --as skipped -e <n>`."
 )
 
 

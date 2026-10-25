@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import logging
 import shutil
+import threading
 from collections.abc import Callable, Iterable
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from animedl import hosts
 from animedl.config import Settings
 from animedl.db import Database, Episode, Series, now
-from animedl.downloader import Downloader, DownloadError
+from animedl.downloader import DownloadCancelled, Downloader, DownloadError
 from animedl.hosts.catalog import UNSUPPORTED
 from animedl.http import BlockedError, HttpClient
 from animedl.metadata import Identifier, MediaInfo, split_season
@@ -80,6 +82,11 @@ class AnimeService:
         self.identifier = Identifier(
             http, settings.database.parent, title_language=settings.title_language
         )
+        # curl_cffi sessions are not thread-safe: each download thread gets its own client.
+        self.http_factory: Callable[[], HttpClient] = lambda: HttpClient(
+            settings, dump_dir=getattr(http, "dump_dir", None)
+        )
+        self._local = threading.local()
 
     def extractor(self, url: str) -> SiteExtractor:
         return self.extractor_factory(url, self.http)
@@ -216,15 +223,21 @@ class AnimeService:
     def rename_files(self, series: Series, *, dry_run: bool = False) -> list[tuple[Path, Path]]:
         """Move downloaded episodes to the path the current naming gives them."""
         moves: list[tuple[Path, Path]] = []
-        missing = 0
+        missing: list[tuple[Episode, Path]] = []
         for ep in self.db.episodes(series.id, [EpisodeStatus.DONE]):
             if not ep.file_path:
                 continue
-            if not Path(ep.file_path).is_file():
-                missing += 1
-                continue
             old = Path(ep.file_path)
             base = self.episode_path(series, ep)
+            if not old.is_file():
+                # Already where it belongs (moved by hand or by an earlier run): just relink it.
+                if found := existing_video(base):
+                    if not dry_run:
+                        self.db.move_file(ep.id, str(found))
+                    log.info("«%s»: %s ya estaba en su sitio", series.title, found.name)
+                else:
+                    missing.append((ep, old))
+                continue
             new = base.with_name(base.name + old.suffix)
             if new == old:
                 continue
@@ -239,11 +252,18 @@ class AnimeService:
             self.db.move_file(ep.id, str(new))
             self._remove_empty_dirs(old.parent)
         if missing:
+            ep, old = missing[0]
+            more = f" (y {len(missing) - 1} más)" if len(missing) > 1 else ""
+            numbers = ",".join(format_number(e.number) for e, _ in missing)
             log.warning(
-                "«%s»: %d fichero(s) descargados no están donde se guardaron (¿falta montar la "
-                "carpeta antigua, ANIME_DIR en Docker?)",
+                "«%s»: no se encuentra %s%s. Si lo moviste tú, ponlo en %s y repite `rename`. "
+                "Para volver a descargarlo: `animedl mark %d --as pending -e %s`",
                 series.title,
-                missing,
+                old,
+                more,
+                self.episode_path(series, ep),
+                series.id,
+                numbers,
             )
         return moves
 
@@ -279,33 +299,39 @@ class AnimeService:
         retry_failed: bool = False,
         include_failed: bool = True,
     ) -> Report:
-        """Download pending episodes; failed ones too (up to max_attempts) if include_failed."""
+        """Download pending episodes, `parallel_downloads` at a time. Failed ones are retried
+        too (up to max_attempts) when include_failed."""
         report = Report()
         self.db.reset_stale_downloads()
         statuses = [EpisodeStatus.PENDING]
         if include_failed:
             statuses.append(EpisodeStatus.FAILED)
+        jobs: list[tuple[Series, Episode]] = []
         for series in series_list:
-            report.merge(self._download_series(series, episode_filter, retry_failed, statuses))
+            jobs += self._candidates(series, episode_filter, retry_failed, statuses)
+        if jobs:
+            self._run_jobs(jobs, report)
+        order = lambda item: (item[0].title, item[1].season, item[1].number)  # noqa: E731
+        report.downloaded.sort(key=order)
+        report.failed.sort(key=order)
         return report
 
-    def _download_series(
+    def _candidates(
         self,
         series: Series,
         episode_filter: Callable[[Episode], bool] | None,
         retry_failed: bool,
         statuses: list[EpisodeStatus],
-    ) -> Report:
-        report = Report()
+    ) -> list[tuple[Series, Episode]]:
         if not self.db.episodes(series.id, statuses):
-            return report
+            return []
         if self.settings.identify and not series.identified_at:
             # Series added before identification existed: name new downloads properly.
             self.identify_series(series)
             series = self.db.get_series(series.id)
         self.adopt_existing_files(series)
-        candidates = [
-            ep
+        return [
+            (series, ep)
             for ep in self.db.episodes(series.id, statuses)
             if (
                 ep.status == EpisodeStatus.PENDING
@@ -314,44 +340,89 @@ class AnimeService:
             )
             and (episode_filter is None or episode_filter(ep))
         ]
-        if not candidates:
-            return report
-        extractor = self.extractor(series.url)
-        for ep in candidates:
-            if not self.db.claim_episode(ep.id):
-                continue  # another process is on it
-            label = f"«{series.title}» episodio {format_number(ep.number)}"
+
+    def _run_jobs(self, jobs: list[tuple[Series, Episode]], report: Report) -> None:
+        """Download in worker threads; every database write stays in this thread."""
+        workers = max(1, self.settings.parallel_downloads)
+        self.downloader.cancelled.clear()
+        queue = iter(jobs)
+        blocked: set[int] = set()  # series whose site answered with an anti-bot challenge
+        running: dict[Future, tuple[Series, Episode]] = {}
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="descarga") as pool:
             try:
-                log.info("Descargando %s", label)
-                path, server = self._download_episode(series, extractor, ep)
-            except BlockedError as exc:
-                self.db.release(ep.id)
+                while True:
+                    while len(running) < workers:
+                        job = next((j for j in queue if j[0].id not in blocked), None)
+                        if job is None:
+                            break
+                        series, ep = job
+                        if not self.db.claim_episode(ep.id):
+                            continue  # another process is on it
+                        log.info("Descargando %s", _label(series, ep))
+                        base = self.episode_path(series, ep)
+                        running[pool.submit(self._download_episode, series, ep, base)] = job
+                    if not running:
+                        break
+                    done, _ = wait(running, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        series, ep = running.pop(future)
+                        self._record(future, series, ep, report, blocked)
+            except BaseException:
+                # Ctrl+C: stop the running downloads and give their episodes back.
+                self.downloader.cancelled.set()
+                for future, (series, ep) in running.items():
+                    self._record(future, series, ep, report, blocked, interrupted=True)
+                raise
+
+    def _record(
+        self,
+        future: Future,
+        series: Series,
+        ep: Episode,
+        report: Report,
+        blocked: set[int],
+        *,
+        interrupted: bool = False,
+    ) -> None:
+        label = _label(series, ep)
+        try:
+            path, server = future.result()
+        except BlockedError as exc:
+            self.db.release(ep.id)
+            if series.id not in blocked:  # the whole site is blocking us: skip the rest
+                blocked.add(series.id)
                 report.errors.append(f"{series.title}: {exc}")
                 log.error("%s", exc)
-                break  # the whole site is blocking us, no point in trying more episodes
-            except (KeyboardInterrupt, SystemExit):
+        except (DownloadCancelled, KeyboardInterrupt, SystemExit):
+            self.db.release(ep.id)
+        except Exception as exc:
+            if interrupted:
                 self.db.release(ep.id)
-                raise
-            except Exception as exc:
-                self.db.mark_failed(ep.id, str(exc))
-                report.failed.append((series, ep, str(exc)))
-                log.warning("Falló %s: %s", label, exc)
-            else:
-                self.db.mark_done(
-                    ep.id, file_path=str(path), file_size=path.stat().st_size, server=server
-                )
-                report.downloaded.append((series, ep, path))
-                log.info("Completado %s -> %s", label, path)
-        return report
+                return
+            self.db.mark_failed(ep.id, str(exc))
+            report.failed.append((series, ep, str(exc)))
+            log.warning("Falló %s: %s", label, exc)
+        else:
+            self.db.mark_done(
+                ep.id, file_path=str(path), file_size=path.stat().st_size, server=server
+            )
+            report.downloaded.append((series, ep, path))
+            log.info("Completado %s -> %s", label, path)
 
-    def _download_episode(
-        self, series: Series, extractor: SiteExtractor, ep: Episode
-    ) -> tuple[Path, str]:
-        base = self.episode_path(series, ep)
+    def _thread_http(self) -> HttpClient:
+        client = getattr(self._local, "http", None)
+        if client is None:
+            client = self._local.http = self.http_factory()
+        return client
+
+    def _download_episode(self, series: Series, ep: Episode, base: Path) -> tuple[Path, str]:
+        """Runs in a worker thread: no access to self.db here (except the heartbeat, which
+        opens its own connection)."""
         if found := existing_video(base):
             return found, "local"
 
-        sources = extractor.get_sources(ep.ref)
+        http = self._thread_http()
+        sources = self.extractor_factory(series.url, http).get_sources(ep.ref)
         ranked = rank_sources(sources, self.settings.languages, self.settings.servers)
         if not ranked:
             offered = (
@@ -361,8 +432,10 @@ class AnimeService:
 
         errors: list[str] = []
         for src in ranked:
+            if self.downloader.cancelled.is_set():
+                raise DownloadCancelled("Descarga cancelada")
             try:
-                streams = hosts.resolve(self.http, src)
+                streams = hosts.resolve(http, src)
             except BlockedError:
                 raise
             except Exception as exc:
@@ -401,3 +474,7 @@ class AnimeService:
         if download:
             report.merge(self.download_pending(self.db.list_series()))
         return report
+
+
+def _label(series: Series, ep: Episode) -> str:
+    return f"«{series.title}» episodio {format_number(ep.number)}"

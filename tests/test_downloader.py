@@ -93,8 +93,9 @@ class _Recorder:
     def __init__(self):
         self.events = []
 
-    def start(self, label):
+    def track(self, label):
         self.events.append(("start", label))
+        return self
 
     def update(self, done, total, speed):
         self.events.append(("update", done, total))
@@ -119,10 +120,9 @@ def test_log_progress_format(caplog):
 
     from animedl.progress import LogProgress
 
-    lp = LogProgress(interval=0)
-    lp.start("Serie - S01E01")
+    tracker = LogProgress(interval=0).track("Serie - S01E01")
     with caplog.at_level(logging.INFO, logger="animedl.progress"):
-        lp.update(512 * 1024 * 1024, 1024 * 1024 * 1024, 3 * 1024 * 1024)
+        tracker.update(512 * 1024 * 1024, 1024 * 1024 * 1024, 3 * 1024 * 1024)
     assert "Serie - S01E01: 50% · 512.0 MB de 1.0 GB · 3.0 MB/s" in caplog.text
 
 
@@ -156,3 +156,12 @@ def test_failing_heartbeat_does_not_abort_the_download(
         Stream(url=f"{media_server}/ep.mp4"), tmp_path / "ep", heartbeat=boom
     )
     assert path.is_file()
+
+
+def test_cancel_stops_a_real_download(media_server, settings, tmp_path):
+    from animedl.downloader import DownloadCancelled
+
+    downloader = Downloader(settings)
+    downloader.cancelled.set()
+    with pytest.raises(DownloadCancelled):
+        downloader.download(Stream(url=f"{media_server}/ep.m3u8"), tmp_path / "ep")

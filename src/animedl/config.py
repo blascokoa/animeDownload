@@ -53,6 +53,8 @@ class Settings:
     # Seconds between checks of the download queue in `animedl daemon`.
     queue_interval: int = 60
     max_attempts: int = 5
+    # Episodes downloaded at the same time (many hosts cap the speed of each connection).
+    parallel_downloads: int = 3
     # Paths inside series_dir / movies_dir, without extension, following the Plex and Jellyfin
     # naming guides. {series} = "Title (Year)", {ids} = " {tmdb-123}" when identified.
     filename_template: str = "{series}{ids}/Season {season:02d}/{series} - S{season:02d}E{episode}"

@@ -21,12 +21,18 @@ from rich.progress import (
 log = logging.getLogger(__name__)
 
 
-class ProgressReporter(Protocol):
-    def start(self, label: str) -> None: ...
+class Tracker(Protocol):
+    """Progress of one download."""
 
     def update(self, done: float, total: float | None, speed: float | None) -> None: ...
 
     def finish(self) -> None: ...
+
+
+class ProgressReporter(Protocol):
+    """Hands out one tracker per download; several downloads may run at the same time."""
+
+    def track(self, label: str) -> Tracker: ...
 
 
 def human_size(size: float) -> str:
@@ -37,18 +43,12 @@ def human_size(size: float) -> str:
     return f"{size:.1f} GB"
 
 
-class LogProgress:
-    """For the daemon / `docker compose logs`: one line every `interval` seconds."""
-
-    def __init__(self, interval: float = 30):
-        self.interval = interval
-        self.label = ""
-        self._last = 0.0
-        self._lock = threading.Lock()
-
-    def start(self, label: str) -> None:
+class _LogTracker:
+    def __init__(self, label: str, interval: float):
         self.label = label
+        self.interval = interval
         self._last = time.monotonic()
+        self._lock = threading.Lock()  # yt-dlp reports HLS fragments from several threads
 
     def update(self, done: float, total: float | None, speed: float | None) -> None:
         with self._lock:
@@ -66,8 +66,30 @@ class LogProgress:
         pass
 
 
+class LogProgress:
+    """For the daemon / `docker compose logs`: one line every `interval` seconds per download."""
+
+    def __init__(self, interval: float = 30):
+        self.interval = interval
+
+    def track(self, label: str) -> _LogTracker:
+        return _LogTracker(label, self.interval)
+
+
+class _RichTracker:
+    def __init__(self, owner: RichProgress, task: TaskID):
+        self.owner = owner
+        self.task = task
+
+    def update(self, done: float, total: float | None, speed: float | None) -> None:
+        self.owner.progress.update(self.task, completed=done, total=total)
+
+    def finish(self) -> None:
+        self.owner._remove(self.task)
+
+
 class RichProgress:
-    """Live progress bar for interactive use."""
+    """Live progress bars (one per running download) for interactive use."""
 
     def __init__(self, console: Console | None = None):
         self.progress = Progress(
@@ -80,18 +102,19 @@ class RichProgress:
             console=console,
             transient=True,
         )
-        self.task: TaskID | None = None
+        self._active = 0
+        self._lock = threading.Lock()
 
-    def start(self, label: str) -> None:
-        self.progress.start()
-        self.task = self.progress.add_task(label, total=None)
+    def track(self, label: str) -> _RichTracker:
+        with self._lock:
+            if self._active == 0:
+                self.progress.start()
+            self._active += 1
+            return _RichTracker(self, self.progress.add_task(label, total=None))
 
-    def update(self, done: float, total: float | None, speed: float | None) -> None:
-        if self.task is not None:
-            self.progress.update(self.task, completed=done, total=total)
-
-    def finish(self) -> None:
-        if self.task is not None:
-            self.progress.remove_task(self.task)
-            self.task = None
-        self.progress.stop()
+    def _remove(self, task: TaskID) -> None:
+        with self._lock:
+            self.progress.remove_task(task)
+            self._active -= 1
+            if self._active == 0:
+                self.progress.stop()

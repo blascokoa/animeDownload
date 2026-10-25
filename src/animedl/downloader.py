@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -13,7 +14,7 @@ import yt_dlp
 
 from animedl.config import Settings
 from animedl.models import Stream
-from animedl.progress import ProgressReporter
+from animedl.progress import ProgressReporter, Tracker
 
 log = logging.getLogger(__name__)
 
@@ -23,6 +24,10 @@ HEARTBEAT_SECONDS = 60
 
 class DownloadError(Exception):
     pass
+
+
+class DownloadCancelled(Exception):
+    """The download was stopped on purpose (Ctrl+C); the episode is not a failure."""
 
 
 class _YtdlpLogger:
@@ -56,6 +61,8 @@ class Downloader:
     def __init__(self, settings: Settings, *, progress: ProgressReporter | None = None):
         self.settings = settings
         self.progress = progress
+        # Set to stop every running download as soon as possible (thread-safe).
+        self.cancelled = threading.Event()
 
     def download(
         self, stream: Stream, base: Path, heartbeat: Callable[[], None] | None = None
@@ -66,31 +73,32 @@ class Downloader:
         """
         base.parent.mkdir(parents=True, exist_ok=True)
         beat = _Throttled(heartbeat)
-        if self.progress:
-            self.progress.start(base.name)
+        tracker = self.progress.track(base.name) if self.progress else None
         try:
             if stream.kind == "mega":
                 path = self._mega(stream, base, beat)
             else:
-                path = self._ytdlp(stream, base, beat)
+                path = self._ytdlp(stream, base, beat, tracker)
         finally:
-            if self.progress:
-                self.progress.finish()
+            if tracker:
+                tracker.finish()
         self._validate(path)
         return path
 
-    def _on_progress(self, info: dict, beat: _Throttled) -> None:
+    def _on_progress(self, info: dict, beat: _Throttled, tracker: Tracker | None) -> None:
         """yt-dlp progress hook. It may run in a fragment-download thread, and an exception
-        raised here would abort the download, so nothing may escape."""
+        raised here aborts the download, so only the cancellation may escape."""
+        if self.cancelled.is_set():
+            raise yt_dlp.utils.DownloadCancelled("Descarga cancelada")
         beat()
-        if self.progress and info.get("status") == "downloading":
+        if tracker and info.get("status") == "downloading":
             total = info.get("total_bytes") or info.get("total_bytes_estimate")
             try:
-                self.progress.update(info.get("downloaded_bytes") or 0, total, info.get("speed"))
+                tracker.update(info.get("downloaded_bytes") or 0, total, info.get("speed"))
             except Exception as exc:
                 log.debug("Fallo al mostrar el progreso: %s", exc)
 
-    def _ytdlp(self, stream: Stream, base: Path, beat: _Throttled) -> Path:
+    def _ytdlp(self, stream: Stream, base: Path, beat: _Throttled, tracker: Tracker | None) -> Path:
         remove_partials(base)
         opts = {
             # '%' would be read as a yt-dlp template field
@@ -111,14 +119,18 @@ class Downloader:
             "no_warnings": True,
             "noprogress": True,  # progress is reported through the hook below
             "logger": _YtdlpLogger(),
-            "progress_hooks": [lambda info: self._on_progress(info, beat)],
+            "progress_hooks": [lambda info: self._on_progress(info, beat, tracker)],
         }
         if self.settings.cookies_file:
             opts["cookiefile"] = str(self.settings.cookies_file)
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(stream.url, download=True)
+        except yt_dlp.utils.DownloadCancelled as exc:
+            raise DownloadCancelled(str(exc)) from exc
         except yt_dlp.utils.YoutubeDLError as exc:
+            if self.cancelled.is_set():
+                raise DownloadCancelled("Descarga cancelada") from exc
             raise DownloadError(str(exc).removeprefix("ERROR: ")) from exc
         if info and info.get("entries"):
             info = next(iter(info["entries"]), None)
@@ -142,10 +154,13 @@ class Downloader:
         ) as proc:
             while True:
                 try:
-                    output, _ = proc.communicate(timeout=HEARTBEAT_SECONDS)
+                    output, _ = proc.communicate(timeout=1)
                     break
                 except subprocess.TimeoutExpired:
                     beat()
+                    if self.cancelled.is_set():
+                        proc.kill()
+                        raise DownloadCancelled("Descarga cancelada") from None
                     if time.monotonic() > deadline:
                         proc.kill()
                         raise DownloadError("megatools: tiempo de espera agotado") from None

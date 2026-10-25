@@ -20,6 +20,8 @@ services:
       TZ: ${TZ:-Europe/Madrid}
       # Cuándo buscar episodios nuevos (cron: minuto hora día mes día-semana). Lunes 04:00.
       ANIMEDL_SCHEDULE: ${ANIMEDL_SCHEDULE:-0 4 * * 1}
+      # Episodios que se descargan a la vez
+      ANIMEDL_PARALLEL_DOWNLOADS: ${ANIMEDL_PARALLEL_DOWNLOADS:-3}
     volumes:
       - ./data:/data                                # base de datos y config.toml opcional
       - ${SERIES_DIR:-./downloads/Series}:/series     # biblioteca de series de Plex/Jellyfin

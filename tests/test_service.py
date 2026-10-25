@@ -1,3 +1,5 @@
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -51,6 +53,7 @@ class FakeSite(SiteExtractor):
 class FakeDownloader:
     def __init__(self):
         self.calls: list[Stream] = []
+        self.cancelled = threading.Event()
 
     def download(self, stream: Stream, base: Path, heartbeat=None) -> Path:
         self.calls.append(stream)
@@ -226,3 +229,80 @@ def test_queue_mode_leaves_failed_episodes_for_the_weekly_check(service, site):
     assert report.downloaded == []
     report = service.download_pending([series])
     assert [e.number for _, e, _ in report.downloaded] == [2]
+
+
+class SlowDownloader(FakeDownloader):
+    """Records how many downloads run at the same time."""
+
+    def __init__(self):
+        super().__init__()
+        self.lock = threading.Lock()
+        self.running = 0
+        self.max_running = 0
+        self.threads: set[str] = set()
+
+    def download(self, stream, base, heartbeat=None):
+        with self.lock:
+            self.running += 1
+            self.max_running = max(self.max_running, self.running)
+            self.threads.add(threading.current_thread().name)
+        time.sleep(0.2)
+        with self.lock:
+            self.running -= 1
+        return super().download(stream, base, heartbeat)
+
+
+def test_episodes_download_in_parallel(service, site, settings):
+    settings.parallel_downloads = 3
+    site.count = 7
+    service.downloader = SlowDownloader()
+    series, _ = service.add_series(URL)
+    report = service.download_pending([series])
+    assert len(report.downloaded) == 7
+    assert service.downloader.max_running == 3
+    assert all(name.startswith("descarga") for name in service.downloader.threads)
+    assert [e.number for _, e, _ in report.downloaded] == [1, 2, 3, 4, 5, 6, 7]  # sorted report
+
+
+def test_one_download_at_a_time_when_configured(service, site, settings):
+    settings.parallel_downloads = 1
+    service.downloader = SlowDownloader()
+    series, _ = service.add_series(URL)
+    service.download_pending([series])
+    assert service.downloader.max_running == 1
+
+
+class BlockingDownloader(FakeDownloader):
+    """Downloads that only end when cancelled."""
+
+    def __init__(self):
+        super().__init__()
+        self.started = threading.Semaphore(0)
+
+    def download(self, stream, base, heartbeat=None):
+        from animedl.downloader import DownloadCancelled
+
+        self.started.release()
+        while not self.cancelled.wait(0.01):
+            pass
+        raise DownloadCancelled("cancelada")
+
+
+def test_ctrl_c_cancels_running_downloads_and_releases_them(service, site, settings, monkeypatch):
+    settings.parallel_downloads = 2
+    service.downloader = BlockingDownloader()
+    series, _ = service.add_series(URL)
+
+    def interrupted_wait(futures, return_when):
+        service.downloader.started.acquire()
+        service.downloader.started.acquire()  # both workers are downloading
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("animedl.service.wait", interrupted_wait)
+    with pytest.raises(KeyboardInterrupt):
+        service.download_pending([series])
+    assert service.downloader.cancelled.is_set()
+    assert all(
+        e.status == EpisodeStatus.PENDING and e.attempts == 0
+        for e in service.db.episodes(series.id)
+    )
