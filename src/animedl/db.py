@@ -330,8 +330,17 @@ class Database:
         return cur.rowcount
 
     def touch(self, episode_id: int) -> None:
-        """Heartbeat of a running download, so it is not taken for an abandoned one."""
-        self.conn.execute("UPDATE episodes SET updated_at=? WHERE id=?", (now(), episode_id))
+        """Heartbeat of a running download, so it is not taken for an abandoned one.
+
+        Called from yt-dlp's download threads, so it uses its own short-lived connection
+        (sqlite3 connections cannot be shared between threads).
+        """
+        conn = sqlite3.connect(self.path, timeout=30)
+        try:
+            with conn:
+                conn.execute("UPDATE episodes SET updated_at=? WHERE id=?", (now(), episode_id))
+        finally:
+            conn.close()
 
     def reset_stale_downloads(self, older_than: timedelta = timedelta(minutes=30)) -> int:
         """Episodes left in 'downloading' by a process that died go back to 'pending'."""

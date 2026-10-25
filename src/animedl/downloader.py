@@ -46,7 +46,10 @@ class _Throttled:
     def __call__(self) -> None:
         if self.func and time.monotonic() - self.last >= HEARTBEAT_SECONDS:
             self.last = time.monotonic()
-            self.func()
+            try:
+                self.func()
+            except Exception as exc:  # never let bookkeeping abort a download
+                log.debug("Fallo en el latido de la descarga: %s", exc)
 
 
 class Downloader:
@@ -77,10 +80,15 @@ class Downloader:
         return path
 
     def _on_progress(self, info: dict, beat: _Throttled) -> None:
+        """yt-dlp progress hook. It may run in a fragment-download thread, and an exception
+        raised here would abort the download, so nothing may escape."""
         beat()
         if self.progress and info.get("status") == "downloading":
             total = info.get("total_bytes") or info.get("total_bytes_estimate")
-            self.progress.update(info.get("downloaded_bytes") or 0, total, info.get("speed"))
+            try:
+                self.progress.update(info.get("downloaded_bytes") or 0, total, info.get("speed"))
+            except Exception as exc:
+                log.debug("Fallo al mostrar el progreso: %s", exc)
 
     def _ytdlp(self, stream: Stream, base: Path, beat: _Throttled) -> Path:
         remove_partials(base)

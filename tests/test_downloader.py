@@ -124,3 +124,35 @@ def test_log_progress_format(caplog):
     with caplog.at_level(logging.INFO, logger="animedl.progress"):
         lp.update(512 * 1024 * 1024, 1024 * 1024 * 1024, 3 * 1024 * 1024)
     assert "Serie - S01E01: 50% · 512.0 MB de 1.0 GB · 3.0 MB/s" in caplog.text
+
+
+def test_heartbeat_from_hls_worker_threads_can_touch_the_db(
+    media_server, settings, db, tmp_path, monkeypatch
+):
+    """yt-dlp calls progress hooks from its fragment threads; the heartbeat writes to SQLite."""
+    from animedl.models import EpisodeRef, SeriesStatus
+
+    monkeypatch.setattr("animedl.downloader.HEARTBEAT_SECONDS", 0)
+    series = db.add_series(
+        url="https://x/", site="x", title="X", folder="X", status=SeriesStatus.AIRING
+    )
+    [ep] = db.upsert_episodes(series.id, [EpisodeRef(1, "https://x/1")])
+    settings.concurrent_fragments = 4
+    path = Downloader(settings).download(
+        Stream(url=f"{media_server}/ep.m3u8"), tmp_path / "ep", heartbeat=lambda: db.touch(ep.id)
+    )
+    assert path.is_file()
+
+
+def test_failing_heartbeat_does_not_abort_the_download(
+    media_server, settings, tmp_path, monkeypatch
+):
+    monkeypatch.setattr("animedl.downloader.HEARTBEAT_SECONDS", 0)
+
+    def boom():
+        raise RuntimeError("db caída")
+
+    path = Downloader(settings).download(
+        Stream(url=f"{media_server}/ep.mp4"), tmp_path / "ep", heartbeat=boom
+    )
+    assert path.is_file()
