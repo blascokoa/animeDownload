@@ -18,7 +18,7 @@ en emisión y descarga los episodios nuevos.
 
 | Web | Ejemplo | Cómo se leen los episodios |
 | --- | --- | --- |
-| AnimeFLV y clones (`animeflv.ba`, `animeflv.net`…) | `https://animeflv.ba/anime/the-promised-neverland-mrwxzt` | variables `anime_info`/`episodes`/`videos` de la página; si no están, enlaces `/ver/…` |
+| AnimeFLV y clones (`animeflv.ba`, `animeflv.net`…) | `https://animeflv.ba/anime/the-promised-neverland-mrwxzt` | animeflv.ba: JSON `af-episodes` + API `ajax/server/list`; animeflv.net: variables `episodes`/`videos` |
 | JKAnime | `https://jkanime.net/black-clover-2nd-season/` | API AJAX de episodios (la nueva y la antigua); si no, enlaces de la página |
 | AnimeOnline.ninja | `https://ww3.animeonline.ninja/online/kanojo-no-tomodachi/` | tema DooPlay de WordPress (temporadas y API del reproductor) |
 | Cualquier otra | — | extractor genérico (enlaces de episodios + iframes); puede o no funcionar |
@@ -28,31 +28,49 @@ YourUpload, los reproductores propios de JKAnime, Streamtape, Voe, Doodstream, M
 MEGA. Por cada episodio se prueban por orden de preferencia (idioma y servidor) hasta que uno
 funciona.
 
-> ⚠️ **Estado:** las tres webs estaban bloqueadas en el entorno donde se escribió esto, así que
-> los extractores siguen la estructura conocida de cada web pero **aún no se han probado contra
-> las páginas reales**. La descarga (yt-dlp, HLS, base de datos, programación) sí está probada
-> de principio a fin contra una web falsa en local. Empieza con `animedl probe` (ver
-> [Diagnóstico](#diagnóstico)); si algo no cuadra, ese comando te da lo necesario para
-> arreglarlo.
+> **Estado (octubre 2026), probado desde un servidor en la nube:**
+> - **animeflv.ba:** verificado contra la web real. Lista completa de episodios (también series
+>   largas como One Piece, con 1180), estado de emisión, y servidores MP4Upload, Voe, MEGA,
+>   UPNShare y 1Fichier. MP4Upload se resuelve a un `.mp4` directo. La descarga de los bytes no
+>   se pudo probar allí: el CDN de MP4Upload usa el puerto 183 y MEGA usa HTTP, y el proxy de ese
+>   servidor solo dejaba salir por HTTPS en el 443. En un ordenador normal no hay esa restricción.
+> - **jkanime.net** y **animeonline.ninja:** desde la IP del servidor en la nube Cloudflare pedía
+>   el desafío interactivo, así que sus extractores siguen sin probarse contra la web real. Desde
+>   una IP de casa puede que no salte; si salta, usa `cookies_file` (ver
+>   [Diagnóstico](#diagnóstico)).
+> - **Voe** estaba detrás de DDoS-Guard desde esa IP. **UPNShare** cifra el vídeo en su
+>   reproductor y de momento se ignora.
+> - La descarga (yt-dlp, HLS, base de datos, programación) está probada de principio a fin
+>   contra una web falsa en local.
 
 ## Instalación
 
 ### Opción A: Docker (recomendada para dejarlo funcionando solo)
 
+Solo necesitas [Docker](https://docs.docker.com/get-docker/) (Docker Desktop en Windows/Mac).
+La imagen ya trae Python, ffmpeg y megatools.
+
 ```bash
-cp .env.example .env        # pon tu carpeta del disco en ANIME_DIR y tu usuario en PUID/PGID
-mkdir -p data               # aquí vive la base de datos
+git clone -b claude/elegant-bohr-w734ct https://github.com/blascokoa/animeDownload.git
+cd animeDownload
+cp .env.example .env        # edita ANIME_DIR (tu disco) y PUID/PGID (salida de `id`)
 docker compose up -d --build
 ```
 
 El contenedor se queda en marcha y comprueba las series en emisión cada lunes a las 04:00
-(`ANIMEDL_SCHEDULE` en `.env`). Para darle órdenes:
+(`ANIMEDL_SCHEDULE` en `.env`). La base de datos queda en `./data` y los vídeos en `ANIME_DIR`.
+Para darle órdenes usa `./animedl.sh`, que equivale a `docker compose run --rm animedl ...`:
 
 ```bash
-docker compose run --rm animedl add https://jkanime.net/black-clover-2nd-season/
-docker compose run --rm animedl list
+./animedl.sh add https://animeflv.ba/anime/the-promised-neverland-mrwxzt
+./animedl.sh list
+./animedl.sh probe https://animeflv.ba/anime/the-promised-neverland-mrwxzt -e 1 --resolve
 docker compose logs -f      # ver qué hace el programador
+docker compose up -d --build   # tras actualizar el código (git pull)
 ```
+
+En Windows sin WSL, usa `docker compose run --rm animedl add URL` en lugar de `./animedl.sh`, y
+pon en `ANIME_DIR` una ruta como `D:/Anime`.
 
 ### Opción B: directamente en tu ordenador
 

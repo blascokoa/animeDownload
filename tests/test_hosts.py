@@ -116,10 +116,22 @@ def test_dood_builds_signed_url():
         ("https://www.yourupload.com/embed/abc", None, "yourupload"),
         ("https://jkanime.net/jkplayer/um?e=1", None, "jkanime"),
         ("https://saidochesto.top/embed.php?id=1", None, "saidochesto"),
+        ("https://animeav1.uns.bio/#i9nn3b&", None, "upnshare"),
+        ("https://1fichier.com/?9ztcs13", "1Fichier", "1fichier"),
     ],
 )
 def test_identify_host(url, label, expected):
     assert identify_host(url, label) == expected
+
+
+def test_mp4upload_download_page_becomes_embed():
+    from animedl.hosts.catalog import normalize_embed
+
+    assert normalize_embed("https://www.mp4upload.com/zq7pcssjtg1h") == (
+        "https://www.mp4upload.com/embed-zq7pcssjtg1h.html"
+    )
+    embed = "https://www.mp4upload.com/embed-zq7pcssjtg1h.html"
+    assert normalize_embed(embed) == embed
 
 
 def test_mega_url_normalisation():

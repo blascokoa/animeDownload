@@ -7,6 +7,7 @@ the keyword here so that server preferences apply to it.
 
 from __future__ import annotations
 
+import re
 from urllib.parse import urlsplit
 
 from animedl.scraping import fold
@@ -115,6 +116,8 @@ HOSTS: list[tuple[str, tuple[str, ...]]] = [
     ),
     ("uqload", ("uqload",)),
     ("netu", ("netu", "hqq.", "waaw", "younetu")),
+    ("upnshare", ("upnshare", "upns.", "uns.bio")),
+    ("1fichier", ("1fichier",)),
     ("jkanime", ("jkanime",)),
 ]
 
@@ -151,7 +154,16 @@ LABEL_ALIASES = {
 # Hosts yt-dlp knows how to download by itself.
 YTDLP_NATIVE = {"okru", "mailru", "googledrive", "vk", "dailymotion"}
 # Hosts we know we cannot download, skipped right away.
-UNSUPPORTED = {"netu", "fembed"}
+# upnshare: the player decrypts the stream in JS; 1fichier: download page with captcha/wait.
+UNSUPPORTED = {"netu", "fembed", "upnshare", "1fichier"}
+
+
+def normalize_embed(url: str) -> str:
+    """Turn download-page links into the embed URL the resolvers understand."""
+    m = re.match(r"https?://(?:www\.)?mp4upload\.com/(?!embed-)([a-z0-9]{8,})(?:\.html)?/?$", url)
+    if m:
+        return f"https://www.mp4upload.com/embed-{m.group(1)}.html"
+    return url
 
 
 def identify_host(url: str, label: str | None = None) -> str:

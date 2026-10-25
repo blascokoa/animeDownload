@@ -4,6 +4,7 @@ import logging
 from urllib.parse import urlsplit
 
 from animedl.hosts import identify_host, is_known_host
+from animedl.hosts.catalog import normalize_embed
 from animedl.http import HttpClient
 from animedl.models import EpisodeRef, SeriesInfo, VideoSource
 from animedl.scraping import find_player_links, iframe_src, strip_fragment
@@ -45,6 +46,7 @@ class SiteExtractor:
         url = iframe_src(url)
         if url.startswith("//"):
             url = "https:" + url
+        url = normalize_embed(url)
         return VideoSource(
             url=url, server=identify_host(url, label), lang=lang, referer=referer, label=label
         )

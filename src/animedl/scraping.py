@@ -14,9 +14,10 @@ from bs4 import BeautifulSoup
 from animedl.models import SeriesStatus
 
 
-def make_soup(html: str) -> BeautifulSoup:
+def make_soup(html: str, parser: str = "lxml") -> BeautifulSoup:
+    """`html.parser` keeps fragments such as `<template><tr>...` intact; lxml drops them."""
     try:
-        return BeautifulSoup(html, "lxml")
+        return BeautifulSoup(html, parser)
     except Exception:  # lxml missing or broken
         return BeautifulSoup(html, "html.parser")
 
@@ -31,6 +32,14 @@ def absolute(url: str, base: str) -> str:
     if url.startswith("//"):
         return f"{urlsplit(base).scheme or 'https'}:{url}"
     return urljoin(base, url)
+
+
+def same_scheme(url: str, base: str) -> str:
+    """Links to the same host keep the scheme of `base` (sites often print http:// links)."""
+    u, b = urlsplit(url), urlsplit(base)
+    if u.hostname and u.hostname == b.hostname and u.scheme != b.scheme:
+        return u._replace(scheme=b.scheme).geturl()
+    return url
 
 
 def strip_fragment(url: str) -> str:
@@ -257,7 +266,7 @@ def find_episode_links(html: str, series_url: str) -> list:
     slugs = slug_candidates(series_url)
     found: dict[float, EpisodeRef] = {}
     for a in soup.find_all("a", href=True):
-        href = strip_fragment(absolute(a["href"], series_url))
+        href = same_scheme(strip_fragment(absolute(a["href"], series_url)), series_url)
         parts = urlsplit(href)
         if not parts.hostname or not _same_site(parts.hostname, base.hostname or ""):
             continue

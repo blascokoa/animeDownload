@@ -372,7 +372,8 @@ def probe(
     for i, src in enumerate(ranked, 1):
         table.add_row(str(i), src.server, src.lang or "?", src.label or "", src.url)
     console.print(table)
-    ignored = [s for s in sources if s not in ranked]
+    used = {s.url for s in ranked}
+    ignored = {s.url: s for s in sources if s.url not in used}.values()
     if ignored:
         console.print("Ignorados: " + ", ".join(f"{s.server}/{s.lang or '?'}" for s in ignored))
     if resolve:

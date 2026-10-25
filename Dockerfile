@@ -9,6 +9,7 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir .
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 ENV ANIMEDL_DOWNLOAD_DIR=/downloads \
     ANIMEDL_DATABASE=/data/animedl.db \
@@ -17,5 +18,5 @@ ENV ANIMEDL_DOWNLOAD_DIR=/downloads \
     PYTHONUNBUFFERED=1
 
 VOLUME ["/data", "/downloads"]
-ENTRYPOINT ["tini", "--", "animedl"]
+ENTRYPOINT ["tini", "--", "entrypoint.sh"]
 CMD ["daemon"]

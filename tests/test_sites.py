@@ -97,6 +97,92 @@ def test_animeflv_sources():
     assert all(s.referer == ep_url for s in sources)
 
 
+# ------------------------------------------------- animeflv.ba (anikoto engine)
+# Trimmed from the live animeflv.ba pages (October 2026).
+
+ANIKOTO_SERIES = """
+<h1 class="Title d-title" data-jp="Yakusoku no Neverland">The Promised Neverland</h1>
+<p class="AnmStts A"><span class="fa-tv">Finalizado</span></p>
+<ul class="ListCaps" id="episodeList">
+ <li class="fa-play-circle"><a href="http://animeflv.ba/watch/the-promised-neverland-mrwxzt/ep-1">
+  <h3 class="Title">The Promised Neverland</h3><p>Episodio 1</p></a></li>
+</ul>
+<script type="application/json" id="af-episodes">{"id":168,"title":"The Promised Neverland",
+"next":null,"perPage":25,"rangeSize":100,"eps":[
+[3,"http:\\/\\/animeflv.ba\\/watch\\/the-promised-neverland-mrwxzt\\/ep-3","https:\\/\\/img\\/3.jpg",5395],
+[2,"http:\\/\\/animeflv.ba\\/watch\\/the-promised-neverland-mrwxzt\\/ep-2","https:\\/\\/img\\/2.jpg",5393],
+[1,"http:\\/\\/animeflv.ba\\/watch\\/the-promised-neverland-mrwxzt\\/ep-1","https:\\/\\/img\\/1.jpg",5391]]}
+</script>
+"""
+
+ANIKOTO_EPISODE = """
+<a href="https://animeflv.ba/watch/the-promised-neverland-mrwxzt/ep-1" class="af-ob-num active"
+   data-number="1" data-id="5391" data-num="1" data-sub="1" data-dub="0" data-ids="IDS1">1</a>
+<a href="https://animeflv.ba/watch/the-promised-neverland-mrwxzt/ep-2" class="af-ob-num"
+   data-number="2" data-id="5393" data-num="2" data-ids="IDS2">2</a>
+<table class="RTbl Dwnl"><tbody>
+ <tr><td></td><td></td><td></td><td><a href="https://mega.nz/file/AbC#k3y"></a></td></tr>
+</tbody></table>
+"""
+
+ANIKOTO_SERVERS = """<div class="servers">
+ <ul class="CapiTnv nav nav-pills type servers-sub" data-type="sub" data-label="Subtitulado">
+  <li class="server-item active" data-type="sub" data-ep-id="5391" data-sv-id="upnshare"
+      data-link-id="L1" title="UPNShare"><a>Opción <span>1</span></a></li>
+  <li class="server-item" data-type="sub" data-ep-id="5391" data-sv-id="voe"
+      data-link-id="L2" title="Voe"><a>Opción <span>2</span></a></li>
+  <li class="server-item" data-type="sub" data-ep-id="5391" data-sv-id="mp4upload"
+      data-link-id="L3" title="MP4Upload"><a>Opción <span>3</span></a></li>
+ </ul></div>
+<template class="af-dl-rows" data-ep-id="5391">
+ <tr><td>Mega</td><td><strong>MP4</strong></td><td>SUB</td><td>
+   <a href="https://mega.nz/file/AbC#k3y" class="Button Sm fa-download">DESCARGAR</a></td></tr>
+ <tr><td>MP4Upload</td><td><strong>MP4</strong></td><td>SUB</td><td>
+   <a href="https://www.mp4upload.com/zq7pcssjtg1h" class="Button Sm fa-download">DESCARGAR</a></td></tr>
+</template>"""
+
+
+def test_animeflv_anikoto_series_uses_full_json_list():
+    url = "https://animeflv.ba/anime/the-promised-neverland-mrwxzt"
+    info = AnimeFlvExtractor(FakeHttp({("GET", url): ANIKOTO_SERIES})).get_series(url)
+    assert info.title == "The Promised Neverland"
+    assert info.status == SeriesStatus.FINISHED
+    assert [e.number for e in info.episodes] == [1, 2, 3]  # the visible list only had ep 1
+    assert info.episodes[2].url == "https://animeflv.ba/watch/the-promised-neverland-mrwxzt/ep-3"
+
+
+def test_animeflv_anikoto_sources():
+    ep_url = "https://animeflv.ba/watch/the-promised-neverland-mrwxzt/ep-1"
+    base = "https://animeflv.ba/ajax"
+    http = FakeHttp(
+        {
+            ("GET", ep_url): ANIKOTO_EPISODE,
+            ("GET", f"{base}/server/list?servers=IDS1"): {"status": 200, "result": ANIKOTO_SERVERS},
+            ("GET", f"{base}/server?get=L1"): {
+                "status": 200,
+                "result": {"url": "https://animeav1.uns.bio/#i9nn3b&"},
+            },
+            ("GET", f"{base}/server?get=L2"): {
+                "status": 200,
+                "result": {"url": "https://voe.sx/e/pbf"},
+            },
+            ("GET", f"{base}/server?get=L3"): {
+                "status": 200,
+                "result": {"url": "https://www.mp4upload.com/embed-zq7pcssjtg1h.html"},
+            },
+        }
+    )
+    sources = AnimeFlvExtractor(http).get_sources(EpisodeRef(1, ep_url))
+    got = [(s.server, s.lang, s.url) for s in sources]
+    assert got == [
+        ("upnshare", "sub", "https://animeav1.uns.bio/#i9nn3b&"),
+        ("voe", "sub", "https://voe.sx/e/pbf"),
+        ("mp4upload", "sub", "https://www.mp4upload.com/embed-zq7pcssjtg1h.html"),
+        ("mega", "sub", "https://mega.nz/file/AbC#k3y"),
+        ("mp4upload", "sub", "https://www.mp4upload.com/embed-zq7pcssjtg1h.html"),
+    ]
+
+
 # ----------------------------------------------------------------- jkanime
 
 JK_SERIES = """
