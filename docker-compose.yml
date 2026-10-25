@@ -1,9 +1,18 @@
 services:
   animedl:
-    build: .
+    build:
+      context: .
+      # Build with host networking so the systemd-resolved stub (127.0.0.53)
+      # on the host is reachable and apt-get can resolve deb.debian.org.
+      network: host
     image: animedl:latest
     container_name: animedl
     restart: unless-stopped
+    # Containers can't reach the host's 127.0.0.53 stub resolver, so pin
+    # public resolvers for runtime DNS (pip, megatools, episode sources, etc.).
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     environment:
       # Los vídeos se crean con este usuario/grupo (ejecuta `id` para ver los tuyos)
       PUID: ${PUID:-1000}

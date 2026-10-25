@@ -192,6 +192,11 @@ animedl -v probe URL -e 1 --resolve --dump debug/                          # gua
 
 Problemas típicos:
 
+- **`docker compose build` falla con «Temporary failure resolving 'deb.debian.org'»:** pasa en
+  Linux con systemd-resolved (DNS en `127.0.0.53`), que no es accesible desde los
+  contenedores. `docker-compose.yml` ya construye la imagen con la red del equipo
+  (`build.network: host`) y da a los contenedores los DNS públicos 1.1.1.1 y 8.8.8.8. Si en tu
+  red tienes que usar otro DNS (Pi-hole, el de la empresa...), cámbialo en `dns:`.
 - **«pide un desafío anti-bots (Cloudflare)»:** abre la web en tu navegador, exporta las
   cookies a `cookies.txt` (por ejemplo, con la extensión «Get cookies.txt LOCALLY») y
   configura `cookies_file` y `user_agent`, este último con el mismo User-Agent que ese
