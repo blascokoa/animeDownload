@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Datos locales
+config.toml
+data/
+downloads/
+*.db
+*.db-wal
+*.db-shm
+cookies.txt
+debug/
+.env

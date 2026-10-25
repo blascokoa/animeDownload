@@ -1,0 +1,11 @@
+[Unit]
+Description=animedl: comprobación semanal de episodios nuevos
+
+[Timer]
+OnCalendar=Mon *-*-* 04:00:00
+# Si el ordenador estaba apagado a esa hora, se ejecuta al encenderlo
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

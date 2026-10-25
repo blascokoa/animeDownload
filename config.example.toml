@@ -1,0 +1,40 @@
+# Copia este fichero a config.toml (en la carpeta desde la que ejecutas animedl,
+# en ~/.config/animedl/config.toml o, con Docker, en ./data/config.toml).
+# Todas las opciones son opcionales; también se pueden dar como variables de entorno
+# ANIMEDL_<OPCION>, p. ej. ANIMEDL_DOWNLOAD_DIR=/mnt/disco/anime.
+
+# Dónde se guardan las series
+download_dir = "/mnt/disco/anime"
+
+# Base de datos SQLite (por defecto ~/.local/share/animedl/animedl.db)
+# database = "/mnt/disco/anime/.animedl.db"
+
+# Versiones preferidas, en orden: "sub" (japonés subtitulado), "lat" (latino), "cast" (castellano).
+# Las que no estén en la lista se ignoran.
+languages = ["sub", "lat", "cast"]
+
+# Orden en el que se prueban los servidores. Los que no estén se prueban al final.
+servers = [
+  "okru", "streamwish", "vidhide", "mp4upload", "yourupload", "jkanime",
+  "streamtape", "voe", "filemoon", "mega", "mixdrop", "doodstream",
+]
+
+# Calendario de `animedl daemon` (cron). Por defecto lunes a las 04:00.
+schedule = "0 4 * * 1"
+
+# Intentos por episodio antes de rendirse (se reintenta en cada comprobación semanal)
+max_attempts = 5
+
+# Ruta de cada episodio dentro de download_dir (sin extensión).
+# Variables: {series}, {season}, {episode}. El formato por defecto lo entienden Plex y Jellyfin.
+filename_template = "{series}/Season {season:02d}/{series} - S{season:02d}E{episode}"
+episode_padding = 2
+
+# Si una web pide el desafío de Cloudflare: exporta las cookies de tu navegador
+# (extensión "Get cookies.txt LOCALLY") y pon aquí el mismo User-Agent que ese navegador.
+# cookies_file = "/ruta/a/cookies.txt"
+# user_agent = "Mozilla/5.0 ..."
+
+# Pausa entre peticiones a las webs (segundos) y descargas paralelas de fragmentos HLS
+request_delay = 0.5
+concurrent_fragments = 4

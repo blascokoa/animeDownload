@@ -1,0 +1,16 @@
+services:
+  animedl:
+    build: .
+    image: animedl:latest
+    container_name: animedl
+    restart: unless-stopped
+    # Los vídeos se crean con este usuario (por defecto 1000:1000, ver .env)
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      TZ: ${TZ:-Europe/Madrid}
+      # Cuándo buscar episodios nuevos (cron: minuto hora día mes día-semana). Lunes 04:00.
+      ANIMEDL_SCHEDULE: ${ANIMEDL_SCHEDULE:-0 4 * * 1}
+    volumes:
+      - ./data:/data                          # base de datos y config.toml opcional
+      - ${ANIME_DIR:-./downloads}:/downloads  # tu disco duro
+    command: ["daemon"]

@@ -1,0 +1,9 @@
+[Unit]
+Description=animedl: buscar y descargar episodios nuevos
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Ajusta la ruta si instalaste animedl en otro sitio (`which animedl`)
+ExecStart=%h/.local/bin/animedl update
