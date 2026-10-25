@@ -11,12 +11,14 @@ COPY src ./src
 RUN pip install --no-cache-dir .
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-ENV ANIMEDL_DOWNLOAD_DIR=/downloads \
+ENV ANIMEDL_SERIES_DIR=/series \
+    ANIMEDL_MOVIES_DIR=/movies \
+    ANIMEDL_DOWNLOAD_DIR=/downloads \
     ANIMEDL_DATABASE=/data/animedl.db \
     ANIMEDL_CONFIG=/data/config.toml \
     HOME=/data \
     PYTHONUNBUFFERED=1
 
-VOLUME ["/data", "/downloads"]
+VOLUME ["/data", "/series", "/movies"]
 ENTRYPOINT ["tini", "--", "entrypoint.sh"]
 CMD ["daemon"]

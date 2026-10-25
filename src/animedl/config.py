@@ -37,6 +37,10 @@ def _xdg(var: str, fallback: str) -> Path:
 @dataclass
 class Settings:
     download_dir: Path = field(default_factory=lambda: Path.home() / "Anime")
+    # Separate roots for series and movies, so each Plex/Jellyfin library (Shows / Movies) only
+    # sees its own kind. Default: download_dir/Series and download_dir/Peliculas.
+    series_dir: Path | None = None
+    movies_dir: Path | None = None
     database: Path = field(
         default_factory=lambda: _xdg("XDG_DATA_HOME", ".local/share") / "animedl" / "animedl.db"
     )
@@ -49,13 +53,10 @@ class Settings:
     # Seconds between checks of the download queue in `animedl daemon`.
     queue_interval: int = 60
     max_attempts: int = 5
-    # Paths relative to download_dir, without extension, following the Plex and Jellyfin naming
-    # guides. {series} = "Title (Year)", {ids} = " {tmdb-123}" when the anime was identified.
-    # Add "Series" and "Peliculas" as two separate libraries (TV shows / movies).
-    filename_template: str = (
-        "Series/{series}{ids}/Season {season:02d}/{series} - S{season:02d}E{episode}"
-    )
-    movie_template: str = "Peliculas/{series}{ids}/{series}{ids}"
+    # Paths inside series_dir / movies_dir, without extension, following the Plex and Jellyfin
+    # naming guides. {series} = "Title (Year)", {ids} = " {tmdb-123}" when identified.
+    filename_template: str = "{series}{ids}/Season {season:02d}/{series} - S{season:02d}E{episode}"
+    movie_template: str = "{series}{ids}/{series}{ids}"
     # Look the anime up on AniList + TMDB/TVDB id lists to get the canonical title, year,
     # season and ids. Turn off to name files after the site's title.
     identify: bool = True
@@ -70,14 +71,18 @@ class Settings:
     min_file_size_mb: float = 2.0
 
     @property
-    def lock_dir(self) -> Path:
-        return self.database.parent
+    def series_root(self) -> Path:
+        return self.series_dir or self.download_dir / "Series"
+
+    @property
+    def movies_root(self) -> Path:
+        return self.movies_dir or self.download_dir / "Peliculas"
 
 
 def _coerce(name: str, value: Any, current: Any) -> Any:
-    if name in ("download_dir", "database", "cookies_file"):
+    if name in ("download_dir", "database", "cookies_file", "series_dir", "movies_dir"):
         if value in (None, ""):
-            return None if name == "cookies_file" else current
+            return current if name in ("download_dir", "database") else None
         return Path(str(value)).expanduser()
     if isinstance(current, list):
         if isinstance(value, str):
@@ -127,4 +132,7 @@ def load_settings(config_file: Path | None = None) -> Settings:
         if env is not None:
             setattr(settings, key, _coerce(key, env, getattr(settings, key)))
 
+    # Templates from before series_dir/movies_dir existed included the folder themselves.
+    settings.filename_template = settings.filename_template.removeprefix("Series/")
+    settings.movie_template = settings.movie_template.removeprefix("Peliculas/")
     return settings

@@ -152,8 +152,7 @@ def print_destination(service: AnimeService, series: Series) -> None:
     if episodes:
         target = service.episode_path(series, episodes[0])
         where = target if series.is_movie else target.parent
-        rel = where.relative_to(service.settings.download_dir)
-        console.print(f"  Plex/Jellyfin: {describe(series)}  →  {rel}", soft_wrap=True)
+        console.print(f"  Plex/Jellyfin: {describe(series)}  →  {where}", soft_wrap=True)
     if service.settings.identify and not series.id_tag:
         console.print(
             "  [yellow]Sin ID de TMDB/TVDB:[/yellow] Plex/Jellyfin la buscarán por el título. Si no "
@@ -162,9 +161,8 @@ def print_destination(service: AnimeService, series: Series) -> None:
 
 
 def print_moves(service: AnimeService, moves, *, dry_run: bool) -> None:
-    root = service.settings.download_dir
     for old, new in moves:
-        console.print(f"  {old.relative_to(root)}  →  {new.relative_to(root)}", soft_wrap=True)
+        console.print(f"  {old}  →  {new}", soft_wrap=True)
     if moves:
         verb = "se moverían" if dry_run else "movidos"
         console.print(f"  {len(moves)} fichero(s) {verb}")

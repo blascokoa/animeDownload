@@ -290,3 +290,36 @@ def test_old_unidentified_series_are_identified_before_downloading(service, sett
     service.download_pending([series])
     folder = settings.download_dir / "Series" / "The Promised Neverland (2019) {tmdb-83097}"
     assert len(list((folder / "Season 01").glob("*.mp4"))) == 3
+
+
+def test_separate_series_and_movies_roots_and_migration(service, settings, tmp_path):
+    """Old layout (download_dir/Series/...) -> series_dir/... after `rename`."""
+    settings.identify = False
+    series, _ = service.add_series(URL)
+    service.download_pending([series])
+    old_root = settings.download_dir / "Series"
+    assert len(list(old_root.rglob("*.mp4"))) == 3
+
+    settings.series_dir = tmp_path / "media" / "series"
+    settings.movies_dir = tmp_path / "media" / "movies"
+    moves = service.rename_files(service.db.get_series(series.id))
+    assert len(moves) == 3
+    season = settings.series_dir / "Serie de prueba" / "Season 01"
+    assert sorted(p.name for p in season.iterdir()) == [
+        f"Serie de prueba - S01E0{n}.mp4" for n in (1, 2, 3)
+    ]
+    assert not old_root.exists()  # emptied folders of the old layout are removed
+    assert not settings.movies_dir.exists()  # nothing of a series lands in the movies folder
+
+
+def test_old_templates_with_folder_prefix_still_work(tmp_path):
+    from animedl.config import load_settings
+
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(
+        'filename_template = "Series/{series}{ids}/Season {season:02d}/{series} - '
+        'S{season:02d}E{episode}"\nmovie_template = "Peliculas/{series}{ids}/{series}{ids}"\n'
+    )
+    s = load_settings(cfg)
+    assert s.filename_template.startswith("{series}{ids}/Season")
+    assert s.movie_template == "{series}{ids}/{series}{ids}"

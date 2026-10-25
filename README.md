@@ -6,15 +6,15 @@ una base de datos SQLite qué tienes y qué no. Una vez por semana revisa las se
 en emisión y descarga los episodios nuevos.
 
 ```
-/mnt/disco/anime/
-├── Series/                                  ← biblioteca de series en Plex/Jellyfin
-│   ├── Black Clover (2017) {tmdb-73223}/
-│   │   ├── Season 01/Black Clover (2017) - S01E01.mp4 ...
-│   │   └── Season 02/Black Clover (2017) - S02E01.mp4 ...   ← «Black Clover 2nd Season»
-│   └── Attack on Titan (2013) {tmdb-1429}/
-│       └── Season 03/Attack on Titan (2013) - S03E13.mp4 ...  ← «Season 3 Part 2», ep. 1
-└── Peliculas/                               ← biblioteca de películas
-    └── A Silent Voice (2016) {tmdb-378064}/A Silent Voice (2016) {tmdb-378064}.mp4
+/media/series/                               ← biblioteca de tipo «Series» en Plex/Jellyfin
+├── Black Clover (2017) {tmdb-73223}/
+│   ├── Season 01/Black Clover (2017) - S01E01.mp4 ...
+│   └── Season 02/Black Clover (2017) - S02E01.mp4 ...     ← «Black Clover 2nd Season»
+└── Attack on Titan (2013) {tmdb-1429}/
+    └── Season 03/Attack on Titan (2013) - S03E13.mp4 ...    ← «Season 3 Part 2», ep. 1
+
+/media/movies/                               ← biblioteca de tipo «Películas»
+└── A Silent Voice (2016) {tmdb-378064}/A Silent Voice (2016) {tmdb-378064}.mp4
 ```
 
 ## Webs soportadas
@@ -56,13 +56,17 @@ La imagen ya trae Python, ffmpeg y megatools.
 ```bash
 git clone -b claude/elegant-bohr-w734ct https://github.com/blascokoa/animeDownload.git
 cd animeDownload
-cp .env.example .env        # edita ANIME_DIR (tu disco) y PUID/PGID (salida de `id`)
+cp .env.example .env        # edita SERIES_DIR, MOVIES_DIR y PUID/PGID (salida de `id`)
 docker compose up -d --build
 ```
 
+`SERIES_DIR` (por ejemplo `/media/series`) y `MOVIES_DIR` (por ejemplo `/media/movies`) son dos
+carpetas separadas, y no conviene que una esté dentro de la otra: cada una será una biblioteca
+distinta en Plex/Jellyfin.
+
 El contenedor se queda en marcha. Cada minuto descarga lo que haya pendiente, y cada lunes a
 las 04:00 (`ANIMEDL_SCHEDULE` en `.env`) busca episodios nuevos de las series en emisión. La
-base de datos queda en `./data` y los vídeos en `ANIME_DIR`. Para darle órdenes usa
+base de datos queda en `./data` y los vídeos en `SERIES_DIR` y `MOVIES_DIR`. Para darle órdenes usa
 `./animedl.sh`: si el daemon está en marcha ejecuta el comando dentro de él, y si no, en un
 contenedor temporal.
 
@@ -76,7 +80,12 @@ docker compose up -d --build   # tras actualizar el código (git pull)
 ```
 
 En Windows sin WSL, usa `docker compose run --rm animedl add URL` en lugar de `./animedl.sh`, y
-pon en `ANIME_DIR` una ruta como `D:/Anime`.
+pon rutas como `D:/Anime/Series` y `D:/Anime/Peliculas`.
+
+**Si descargaste con una versión anterior**, que lo guardaba todo bajo `ANIME_DIR`, deja `ANIME_DIR`
+en `.env` y ejecuta una vez `./animedl.sh rename`. Mueve cada fichero a `SERIES_DIR` o
+`MOVIES_DIR` y borra las carpetas antiguas que se queden vacías. Después puedes quitar
+`ANIME_DIR` del `.env`.
 
 ### Opción B: directamente en tu ordenador
 
@@ -183,14 +192,15 @@ por defecto de Jellyfin. Por eso:
 - Las secuelas van dentro de la serie original con su número de temporada, y las temporadas
   partidas en dos llevan el número de episodio que les da TMDB (Attack on Titan S3 Part 2
   empieza en el S03E13).
-- Las películas van a `Peliculas/` con el formato de película.
+- Las películas van a la carpeta de películas (`MOVIES_DIR`) con el formato de película.
 - Los OVA que TMDB considera especiales y los episodios «12.5» van a `Season 00`.
 - Las series largas que TMDB no divide en temporadas, como One Piece, usan `{tvdb-ID}` y
   numeración absoluta. **En Plex** elige para esa serie *Episode ordering → TheTVDB (Absolute)*
   (Editar → Avanzado). **En Jellyfin** instala el plugin de TheTVDB y elige el orden «Absolute».
 
-En Plex/Jellyfin crea **dos bibliotecas**: una de series apuntando a `Series/` y otra de películas
-apuntando a `Peliculas/`.
+En Plex/Jellyfin crea **dos bibliotecas**: una de tipo *Series* (*Shows*/*TV Shows*) con la
+carpeta de series y otra de tipo *Películas* con la de películas. Si una biblioteca de películas
+incluye la carpeta de series, Jellyfin muestra cada episodio como una película suelta.
 
 Comandos:
 
@@ -214,7 +224,8 @@ a `data/config.toml`. Cada opción se puede dar también como variable de entorn
 
 | Opción | Por defecto | Para qué |
 | --- | --- | --- |
-| `download_dir` | `~/Anime` | carpeta del disco duro |
+| `series_dir`, `movies_dir` | `download_dir/Series`, `download_dir/Peliculas` | carpetas de series y de películas (en Docker: `SERIES_DIR` y `MOVIES_DIR` en `.env`) |
+| `download_dir` | `~/Anime` | carpeta base si no defines las dos anteriores |
 | `database` | `~/.local/share/animedl/animedl.db` | base de datos SQLite |
 | `languages` | `["sub", "lat", "cast"]` | versiones aceptadas, en orden de preferencia |
 | `servers` | okru, streamwish, vidhide, … | orden en que se prueban los servidores |

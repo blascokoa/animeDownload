@@ -210,13 +210,18 @@ class AnimeService:
                 number=episode.number + series.episode_offset,
                 padding=self.settings.episode_padding,
             )
-        return self.settings.download_dir / rel
+        root = self.settings.movies_root if series.is_movie else self.settings.series_root
+        return root / rel
 
     def rename_files(self, series: Series, *, dry_run: bool = False) -> list[tuple[Path, Path]]:
         """Move downloaded episodes to the path the current naming gives them."""
         moves: list[tuple[Path, Path]] = []
+        missing = 0
         for ep in self.db.episodes(series.id, [EpisodeStatus.DONE]):
-            if not ep.file_path or not Path(ep.file_path).is_file():
+            if not ep.file_path:
+                continue
+            if not Path(ep.file_path).is_file():
+                missing += 1
                 continue
             old = Path(ep.file_path)
             base = self.episode_path(series, ep)
@@ -233,12 +238,20 @@ class AnimeService:
             shutil.move(old, new)
             self.db.move_file(ep.id, str(new))
             self._remove_empty_dirs(old.parent)
+        if missing:
+            log.warning(
+                "«%s»: %d fichero(s) descargados no están donde se guardaron (¿falta montar la "
+                "carpeta antigua, ANIME_DIR en Docker?)",
+                series.title,
+                missing,
+            )
         return moves
 
     def _remove_empty_dirs(self, folder: Path) -> None:
-        root = self.settings.download_dir.resolve()
         folder = folder.resolve()
-        while folder != root and root in folder.parents:
+        roots = [self.settings.series_root, self.settings.movies_root, self.settings.download_dir]
+        root = next((r.resolve() for r in roots if r.resolve() in folder.parents), None)
+        while root is not None and folder != root and root in folder.parents:
             try:
                 folder.rmdir()  # only succeeds when empty
             except OSError:

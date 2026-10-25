@@ -21,6 +21,10 @@ services:
       # Cuándo buscar episodios nuevos (cron: minuto hora día mes día-semana). Lunes 04:00.
       ANIMEDL_SCHEDULE: ${ANIMEDL_SCHEDULE:-0 4 * * 1}
     volumes:
-      - ./data:/data                          # base de datos y config.toml opcional
-      - ${ANIME_DIR:-./downloads}:/downloads  # tu disco duro
+      - ./data:/data                                # base de datos y config.toml opcional
+      - ${SERIES_DIR:-./downloads/Series}:/series     # biblioteca de series de Plex/Jellyfin
+      - ${MOVIES_DIR:-./downloads/Peliculas}:/movies  # biblioteca de películas
+      # Solo para `animedl rename` de lo descargado con versiones anteriores (ANIME_DIR).
+      # Cuando ya no quede nada dentro puedes borrar esta línea.
+      - ${ANIME_DIR:-./downloads}:/downloads
     command: ["daemon"]

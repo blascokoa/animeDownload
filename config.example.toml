@@ -3,8 +3,10 @@
 # Todas las opciones son opcionales; también se pueden dar como variables de entorno
 # ANIMEDL_<OPCION>, p. ej. ANIMEDL_DOWNLOAD_DIR=/mnt/disco/anime.
 
-# Dónde se guardan las series
-download_dir = "/mnt/disco/anime"
+# Dónde se guardan las series y las películas: cada carpeta será una biblioteca distinta
+# en Plex/Jellyfin (tipo "Series" y tipo "Películas"). Mejor que no estén una dentro de otra.
+series_dir = "/media/series"
+movies_dir = "/media/movies"
 
 # Base de datos SQLite (por defecto ~/.local/share/animedl/animedl.db)
 # database = "/mnt/disco/anime/.animedl.db"
@@ -28,11 +30,11 @@ queue_interval = 60
 # Intentos por episodio antes de rendirse (se reintenta en cada comprobación semanal)
 max_attempts = 5
 
-# Nombres según las guías de Plex y Jellyfin (rutas dentro de download_dir, sin extensión).
-# Variables: {series} = "Título (Año)", {ids} = " {tmdb-123}" si se identificó, {title},
-# {year}, {season}, {episode}. Añade "Series" y "Peliculas" como dos bibliotecas distintas.
-filename_template = "Series/{series}{ids}/Season {season:02d}/{series} - S{season:02d}E{episode}"
-movie_template = "Peliculas/{series}{ids}/{series}{ids}"
+# Nombres según las guías de Plex y Jellyfin (rutas dentro de series_dir / movies_dir, sin
+# extensión). Variables: {series} = "Título (Año)", {ids} = " {tmdb-123}" si se identificó,
+# {title}, {year}, {season}, {episode}.
+filename_template = "{series}{ids}/Season {season:02d}/{series} - S{season:02d}E{episode}"
+movie_template = "{series}{ids}/{series}{ids}"
 episode_padding = 2
 
 # Identificar cada anime en AniList + listas de IDs de TMDB/TVDB (título, año, temporada).
