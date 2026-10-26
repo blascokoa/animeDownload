@@ -407,3 +407,117 @@ def test_sololatino_series_from_links():
     assert info.status == SeriesStatus.FINISHED
     assert [(e.season, e.number) for e in info.episodes] == [(1, n) for n in range(1, 13)]
     assert info.episodes[-1].url == f"{url}/temporada-1/episodio-12"
+
+
+# Trimmed from the live sololatino.co pages (dumped from a home connection, October 2026).
+SL_SERIES = """
+<head><meta property="og:type" content="video.tv_show">
+<meta property="og:title" content="Ver Yosuga no Sora (2010) Online en Español | SoloLatino.Co"></head>
+<h1 class="sr-only">Ver Yosuga no Sora Online en Español</h1>
+<select><option>Temporada 1
+                        (12 ep.)</option></select>
+<a href="https://sololatino.co/serie/yosuga-no-sora/temporada-1/episodio-1">1</a>
+<a href="https://sololatino.co/serie/yosuga-no-sora/temporada-1/episodio-12">12</a>
+<dl><dt>Año</dt><dd>2010</dd><dt>Estado</dt><dd>Ended</dd>
+<dt>Temporadas</dt><dd>1</dd><dt>IMDb</dt><dd>tt1743681</dd></dl>
+"""
+SL_EPISODE = """
+<script>window.SL_EPISODE_ID = 134108;</script>
+<button class="player-tab" data-lang-tab="mx">🇲🇽 Latino</button>
+<div class="mb-3" data-lang-group="mx" hidden=""><button class="server-btn"
+ data-player-token="eyJpdiI6IlZ5RDVxeTVia2NDSkYrNHFLZ3Rudmc9PSJ9" data-server-btn="">⭐ Principal</button></div>
+<div class="player-wrap" id="main-player-wrap"><div id="player-frame"></div></div>
+"""
+
+
+def _jwt(payload: dict) -> str:
+    def b64(data: bytes) -> str:
+        return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+    return f"{b64(b'{}')}.{b64(json.dumps(payload).encode())}.firma"
+
+
+# embed69 could not be reached from the test environment: hand-written from its known format.
+EMBED69 = (
+    "<script>let dataLink = "
+    + json.dumps(
+        [
+            {
+                "video_language": "LAT",
+                "sortedEmbeds": [
+                    {
+                        "servername": "streamwish",
+                        "type": "video",
+                        "link": _jwt({"link": "https://streamwish.to/e/abc", "iat": 1}),
+                    },
+                    {"servername": "voe", "type": "video", "link": "https://voe.sx/e/def"},
+                    {"servername": "mega", "type": "download", "link": "cifrado-sin-formato"},
+                ],
+            },
+            {
+                "video_language": "SUB",
+                "sortedEmbeds": [
+                    {
+                        "servername": "filemoon",
+                        "type": "video",
+                        "link": _jwt({"link": "https://filemoon.sx/e/ghi"}),
+                    },
+                ],
+            },
+        ]
+    )
+    + ";</script>"
+)
+
+
+def test_sololatino_real_series_page():
+    from animedl.sites.sololatino import SoloLatinoExtractor
+
+    url = "https://sololatino.co/serie/yosuga-no-sora"
+    x = SoloLatinoExtractor(FakeHttp({("GET", url): SL_SERIES}))
+    info = x.get_series(f"{url}/temporada-1/episodio-12")
+    assert (info.title, info.status, info.is_movie) == (
+        "Yosuga no Sora",
+        SeriesStatus.FINISHED,
+        False,
+    )
+    assert [(e.season, e.number) for e in info.episodes] == [(1, 1), (1, 12)]
+    assert x.imdb_id(info.episodes[-1].url) == "tt1743681"
+
+
+def test_sololatino_sources_come_from_embed69():
+    from animedl.sites.sololatino import SoloLatinoExtractor
+
+    series = "https://sololatino.co/serie/yosuga-no-sora"
+    episode = f"{series}/temporada-1/episodio-12"
+    http = FakeHttp(
+        {
+            ("GET", series): SL_SERIES,
+            ("GET", episode): SL_EPISODE,
+            ("GET", "https://embed69.org/f/tt1743681-1x12"): EMBED69,
+        }
+    )
+    sources = SoloLatinoExtractor(http).get_sources(EpisodeRef(12, episode))
+    got = [(s.server, s.lang, s.url) for s in sources]
+    assert got == [
+        ("streamwish", "lat", "https://streamwish.to/e/abc"),
+        ("voe", "lat", "https://voe.sx/e/def"),
+        ("filemoon", "sub", "https://filemoon.sx/e/ghi"),
+    ]
+    assert all(s.referer == "https://embed69.org/f/tt1743681-1x12" for s in sources)
+
+
+def test_embed69_remote_decryption():
+    from animedl.sites.embed69 import embed69_links
+
+    page = "https://embed69.org/f/tt1-1x1"
+    html = '<script>let dataLink = [{"video_language":"ESP","sortedEmbeds":[{"servername":"vidhide","link":"x"}]}];</script>'
+    http = FakeHttp(
+        {
+            ("POST", "https://embed69.org/api/decrypt"): {
+                "success": True,
+                "links": [{"index": 0, "link": "https://vidhide.com/v/1"}],
+            }
+        }
+    )
+    assert embed69_links(html, page, http) == [("https://vidhide.com/v/1", "vidhide", "cast")]

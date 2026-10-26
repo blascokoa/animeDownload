@@ -72,7 +72,9 @@ _TITLE_SITE = re.compile(
     r"\s*[-|–—]\s*[^|–—-]*(?:jkanime|animeflv|anime\s*online|ninja|sololatino)[^|–—-]*$", re.I
 )
 _TITLE_NOISE = re.compile(
-    r"\s+(?:online|sub(?:titulado)?(?:\s+espa\w+)?|latino|castellano|gratis|hd)$", re.I
+    r"\s+(?:online|sub(?:titulado)?(?:\s+espa\w+)?|(?:en\s+)?(?:espa\w+|latino|castellano)"
+    r"|gratis|hd)$",
+    re.I,
 )
 
 
@@ -94,9 +96,16 @@ def detect_status(text: str | None) -> SeriesStatus:
     if not text:
         return SeriesStatus.UNKNOWN
     t = fold(text)
-    if re.search(r"en emision|emitiendose|en curso|\bongoing\b|currently airing|\bairing\b", t):
+    if re.search(
+        r"en emision|emitiendose|en curso|\bongoing\b|currently airing|\bairing\b"
+        r"|returning series|in production",  # last two: TMDB statuses
+        t,
+    ):
         return SeriesStatus.AIRING
-    if re.search(r"finalizad|concluid|terminad|completad|\bfinished\b|\bcompleted\b", t):
+    if re.search(
+        r"finalizad|concluid|terminad|completad|\bfinished\b|\bcompleted\b|\bended\b|cancel",
+        t,
+    ):
         return SeriesStatus.FINISHED
     if re.search(r"proximamente|por estrenar|\bupcoming\b|not yet aired|estreno", t):
         return SeriesStatus.UPCOMING

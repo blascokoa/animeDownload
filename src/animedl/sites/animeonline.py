@@ -37,7 +37,9 @@ class AnimeOnlineExtractor(SiteExtractor):
 
     def get_series(self, url: str) -> SeriesInfo:
         url = self.normalize_url(url)
-        html = self.http.get_text(url)
+        return self.parse_series(url, self.http.get_text(url))
+
+    def parse_series(self, url: str, html: str) -> SeriesInfo:
         soup = make_soup(html)
         title = page_title(soup, [".sheader .data h1", ".data h1", "h1"])
         status = status_from(soup, [".sheader .extra", ".custom_fields", ".sheader .data", "#info"])
