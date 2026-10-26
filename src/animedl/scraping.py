@@ -69,7 +69,7 @@ def meta_content(soup: BeautifulSoup, prop: str) -> str | None:
 
 
 _TITLE_SITE = re.compile(
-    r"\s*[-|–—]\s*[^|–—-]*(?:jkanime|animeflv|anime\s*online|ninja)[^|–—-]*$", re.I
+    r"\s*[-|–—]\s*[^|–—-]*(?:jkanime|animeflv|anime\s*online|ninja|sololatino)[^|–—-]*$", re.I
 )
 _TITLE_NOISE = re.compile(
     r"\s+(?:online|sub(?:titulado)?(?:\s+espa\w+)?|latino|castellano|gratis|hd)$", re.I
@@ -141,7 +141,7 @@ def movie_from_text(text: str | None) -> bool | None:
 
 def detect_movie(soup: BeautifulSoup) -> bool | None:
     """Look at the text after a "Tipo:"/"Type:" label."""
-    for label in soup.find_all(string=re.compile(r"^\s*(?:tipo|type)\s*:?\s*$", re.I)):
+    for label in soup.find_all(string=re.compile(r"^\s*(?:tipo|type)\b\s*:?", re.I)):
         for node in (label.parent, label.parent.parent if label.parent else None):
             if (
                 node is not None
@@ -161,7 +161,7 @@ def status_from(soup: BeautifulSoup, selectors: list[str]) -> SeriesStatus:
             status = detect_status(el.get_text(" ", strip=True))
             if status != SeriesStatus.UNKNOWN:
                 return status
-    for label in soup.find_all(string=re.compile(r"^\s*(?:estado|status)\s*:?\s*$", re.I)):
+    for label in soup.find_all(string=re.compile(r"^\s*(?:estado|status)\b\s*:?", re.I)):
         parent = label.parent
         for node in (parent, parent.parent if parent else None):
             if node is None:
@@ -259,6 +259,11 @@ def find_player_links(html: str, base_url: str) -> list[tuple[str, str | None]]:
 
 EPISODE_PATH = re.compile(r"/(?:ver|episodios?|episodes?|capitulos?|watch|ep)/", re.I)
 _EPISODE_WORD = re.compile(r"episodio|episode|capitulo|-cap-|-ep-", re.I)
+_SEASON_AND_EPISODE = re.compile(
+    r"(?:temporada|season)[-_/ ]?(\d+).*?(?:episodio|episode|capitulo|cap|ep)[-_/ ]?(\d+(?:\.\d+)?)",
+    re.I,
+)
+_SEASON_X_EPISODE = re.compile(r"[-/_](\d{1,2})x(\d{1,4}(?:\.\d+)?)/?$", re.I)
 _NUM_IN_PATH = re.compile(
     r"(?:episodio|episode|capitulo|cap|ep)[-_/]?(\d+(?:\.\d+)?)(?:[/-]|$)", re.I
 )
@@ -300,7 +305,7 @@ def find_episode_links(html: str, series_url: str) -> list:
     base = urlsplit(series_url)
     series_path = base.path.rstrip("/")
     slugs = slug_candidates(series_url)
-    found: dict[float, EpisodeRef] = {}
+    found: dict[tuple[int, float], EpisodeRef] = {}
     for a in soup.find_all("a", href=True):
         href = same_scheme(strip_fragment(absolute(a["href"], series_url)), series_url)
         parts = urlsplit(href)
@@ -314,7 +319,11 @@ def find_episode_links(html: str, series_url: str) -> list:
             continue
         text = a.get_text(" ", strip=True)
         tail = lowered.split(slugs[-1], 1)[-1]
-        if EPISODE_PATH.search(path) or _EPISODE_WORD.search(lowered):
+        season = 1
+        if m := _SEASON_AND_EPISODE.search(tail) or _SEASON_X_EPISODE.search(tail):
+            # "/temporada-2/episodio-5" (sololatino) or "-2x5" (DooPlay sites)
+            season, number = int(m.group(1)), float(m.group(2))
+        elif EPISODE_PATH.search(path) or _EPISODE_WORD.search(lowered):
             number = episode_number(tail, text)
             if number is None:
                 number = episode_number(path, text)
@@ -324,8 +333,8 @@ def find_episode_links(html: str, series_url: str) -> list:
             number = float(m.group(1)) if m else None
         if number is None or number > 5000:
             continue
-        found.setdefault(number, EpisodeRef(number=number, url=href, title=None))
-    return [found[n] for n in sorted(found)]
+        found.setdefault((season, number), EpisodeRef(number=number, url=href, season=season))
+    return [found[k] for k in sorted(found)]
 
 
 def _same_site(a: str, b: str) -> bool:

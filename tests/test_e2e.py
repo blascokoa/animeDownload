@@ -127,3 +127,16 @@ def test_background_add_is_picked_up_by_the_queue(fake_site, tmp_path, monkeypat
     process_queue()  # what the daemon runs every minute
     season = downloads / "Series" / "Serie Local" / "Season 01"
     assert len(list(season.glob("*.mp4"))) == 2
+
+
+def test_dump_saves_page_and_players(fake_site, tmp_path, monkeypatch):
+    root, base = fake_site
+    monkeypatch.setenv("ANIMEDL_REQUEST_DELAY", "0")
+    monkeypatch.setattr(state, "_settings", None)
+    _site(root, base, [1])
+    out = tmp_path / "debug"
+    result = CliRunner().invoke(app, ["dump", f"{base}/ver/serie-local-1/", "--out", str(out)])
+    assert result.exit_code == 0, result.output
+    names = sorted(p.name for p in out.iterdir())
+    assert len(names) == 2  # the episode page and the player in its iframe
+    assert "player_1_html" in names[1]

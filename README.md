@@ -24,6 +24,7 @@ en emisión y descarga los episodios nuevos.
 | AnimeFLV y clones (`animeflv.ba`, `animeflv.net`…) | `https://animeflv.ba/anime/the-promised-neverland-mrwxzt` | animeflv.ba: JSON `af-episodes` + API `ajax/server/list`; animeflv.net: variables `episodes`/`videos` |
 | JKAnime | `https://jkanime.net/black-clover-2nd-season/` | API AJAX de episodios (la nueva y la antigua); si no, enlaces de la página |
 | AnimeOnline.ninja | `https://ww3.animeonline.ninja/online/kanojo-no-tomodachi/` | tema DooPlay de WordPress (temporadas y API del reproductor) |
+| SoloLatino | `https://sololatino.co/serie/yosuga-no-sora` (o la URL de un episodio) | enlaces `/temporada-N/episodio-M`; reproductores DooPlay o genéricos (sin verificar: Cloudflare) |
 | Cualquier otra | — | extractor genérico (enlaces de episodios + iframes); puede o no funcionar |
 
 **Servidores de vídeo:** ok.ru, Streamwish, VidHide/Filelions, Filemoon, Mp4upload,
@@ -247,6 +248,7 @@ animedl probe https://jkanime.net/black-clover-2nd-season/                 # tí
 animedl probe https://jkanime.net/black-clover-2nd-season/ -e 1            # servidores del episodio 1
 animedl probe https://jkanime.net/black-clover-2nd-season/ -e 1 --resolve  # y los enlaces de vídeo
 animedl -v probe URL -e 1 --resolve --dump debug/                          # guarda el HTML en debug/
+animedl dump URL_DE_UN_EPISODIO --out debug/   # guarda la página y sus reproductores (web nueva)
 ```
 
 Problemas típicos:

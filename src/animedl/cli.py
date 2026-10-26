@@ -23,6 +23,7 @@ from animedl.http import FetchError, HttpClient
 from animedl.models import EpisodeRef, EpisodeStatus, Monitor, format_number
 from animedl.naming import NameParts, safe_name
 from animedl.progress import LogProgress, RichProgress
+from animedl.scraping import find_player_links
 from animedl.service import AnimeService, Report, rank_sources
 from animedl.sites import SiteError, extractor_for
 
@@ -530,6 +531,33 @@ def probe(
                 continue
             for st in streams:
                 console.print(f"[green]✓ {src.server}[/green] [{st.kind}] {st.url}", soft_wrap=True)
+
+
+@app.command()
+def dump(
+    url: Annotated[str, typer.Argument(help="Página a guardar (serie o episodio)")],
+    out: Annotated[Path, typer.Option(help="Carpeta donde guardar el HTML")] = Path("debug"),
+    depth: Annotated[int, typer.Option(help="Niveles de reproductores/iframes a seguir")] = 2,
+) -> None:
+    """Guarda una página y los reproductores que enlaza, para adaptar animedl a una web nueva."""
+    http = HttpClient(state.settings, dump_dir=out)
+    queue: list[tuple[str, str | None, int]] = [(url, None, 0)]
+    seen: set[str] = set()
+    while queue and len(seen) < 30:
+        page, referer, level = queue.pop(0)
+        if page in seen:
+            continue
+        seen.add(page)
+        try:
+            resp = http.get(page, referer=referer)
+        except FetchError as exc:
+            console.print(f"[red]✗[/red] {page}: {exc}", soft_wrap=True)
+            continue
+        console.print(f"[green]✓[/green] HTTP {resp.status_code} {page}", soft_wrap=True)
+        if level < depth:
+            for link, _ in find_player_links(resp.text, str(resp.url)):
+                queue.append((link, str(resp.url), level + 1))
+    console.print(f"{len(seen)} página(s) guardadas en {out}")
 
 
 @app.command()

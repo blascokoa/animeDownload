@@ -8,11 +8,13 @@ from animedl.sites.animeonline import AnimeOnlineExtractor
 from animedl.sites.base import SiteError, SiteExtractor
 from animedl.sites.generic import GenericExtractor
 from animedl.sites.jkanime import JkAnimeExtractor
+from animedl.sites.sololatino import SoloLatinoExtractor
 
 EXTRACTORS: list[type[SiteExtractor]] = [
     AnimeFlvExtractor,
     JkAnimeExtractor,
     AnimeOnlineExtractor,
+    SoloLatinoExtractor,
 ]
 
 __all__ = ["EXTRACTORS", "SiteError", "SiteExtractor", "extractor_for", "extractor_by_name"]

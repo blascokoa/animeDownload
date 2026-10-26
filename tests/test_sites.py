@@ -358,3 +358,52 @@ def test_find_episode_links_ignores_other_series():
         (1, "https://jkanime.net/kaiju-no-8/1/"),
         (2, "https://jkanime.net/kaiju-no-8/2/"),
     ]
+
+
+# -------------------------------------------------------------- sololatino
+# Only the URL scheme is known for sure (the site was behind Cloudflare when this was written).
+
+
+def test_sololatino_episode_url_maps_to_series():
+    from animedl.sites.sololatino import SoloLatinoExtractor
+
+    x = extractor_for(
+        "https://sololatino.co/serie/yosuga-no-sora/temporada-1/episodio-12", FakeHttp()
+    )
+    assert isinstance(x, SoloLatinoExtractor)
+    assert (
+        x.normalize_url("https://sololatino.co/serie/yosuga-no-sora/temporada-1/episodio-12")
+        == "https://sololatino.co/serie/yosuga-no-sora"
+    )
+    assert x.normalize_url("https://sololatino.co/serie/yosuga-no-sora/") == (
+        "https://sololatino.co/serie/yosuga-no-sora"
+    )
+
+
+def test_episode_links_with_seasons():
+    html = """
+    <a href="/serie/kaiju/temporada-1/episodio-1">T1 E1</a>
+    <a href="/serie/kaiju/temporada-1/episodio-2">T1 E2</a>
+    <a href="/serie/kaiju/temporada-2/episodio-1">T2 E1</a>
+    <a href="/episodios/kaiju-2x2/">2x2</a>
+    """
+    refs = find_episode_links(html, "https://sololatino.co/serie/kaiju")
+    assert [(e.season, e.number) for e in refs] == [(1, 1), (1, 2), (2, 1), (2, 2)]
+
+
+def test_sololatino_series_from_links():
+    from animedl.sites.sololatino import SoloLatinoExtractor
+
+    url = "https://sololatino.co/serie/yosuga-no-sora"
+    html = (
+        "<h1>Yosuga no Sora</h1><p>Estado: Finalizado</p>"
+        + "".join(
+            f'<a href="{url}/temporada-1/episodio-{n}">Episodio {n}</a>' for n in range(1, 13)
+        )
+        + '<aside><a href="https://sololatino.co/serie/otra/temporada-1/episodio-1">Otra</a></aside>'
+    )
+    info = SoloLatinoExtractor(FakeHttp({("GET", url): html})).get_series(url)
+    assert info.title == "Yosuga no Sora"
+    assert info.status == SeriesStatus.FINISHED
+    assert [(e.season, e.number) for e in info.episodes] == [(1, n) for n in range(1, 13)]
+    assert info.episodes[-1].url == f"{url}/temporada-1/episodio-12"
