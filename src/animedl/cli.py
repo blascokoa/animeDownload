@@ -19,7 +19,7 @@ from animedl import __version__, hosts
 from animedl.config import Settings, load_settings
 from animedl.db import Database, Series
 from animedl.downloader import Downloader
-from animedl.http import FetchError, HttpClient
+from animedl.http import IFRAME_HEADERS, FetchError, HttpClient
 from animedl.models import EpisodeRef, EpisodeStatus, Monitor, format_number
 from animedl.naming import NameParts, safe_name
 from animedl.progress import LogProgress, RichProgress
@@ -538,10 +538,17 @@ def dump(
     url: Annotated[str, typer.Argument(help="Página a guardar (serie o episodio)")],
     out: Annotated[Path, typer.Option(help="Carpeta donde guardar el HTML")] = Path("debug"),
     depth: Annotated[int, typer.Option(help="Niveles de reproductores/iframes a seguir")] = 2,
+    referer: Annotated[
+        str | None, typer.Option(help="Página desde la que se abre (cabecera Referer)")
+    ] = None,
+    iframe: Annotated[
+        bool, typer.Option("--iframe", help="Pedirla como un reproductor incrustado (iframe)")
+    ] = False,
 ) -> None:
     """Guarda una página y los reproductores que enlaza, para adaptar animedl a una web nueva."""
     http = HttpClient(state.settings, dump_dir=out)
-    queue: list[tuple[str, str | None, int]] = [(url, None, 0)]
+    extra = IFRAME_HEADERS if iframe else None
+    queue: list[tuple[str, str | None, int]] = [(url, referer, 0)]
     seen: set[str] = set()
     while queue and len(seen) < 30:
         page, referer, level = queue.pop(0)
@@ -549,7 +556,7 @@ def dump(
             continue
         seen.add(page)
         try:
-            resp = http.get(page, referer=referer)
+            resp = http.get(page, referer=referer, headers=extra)
         except FetchError as exc:
             console.print(f"[red]✗[/red] {page}: {exc}", soft_wrap=True)
             continue

@@ -31,6 +31,16 @@ class BlockedError(FetchError):
 _CHALLENGE_MARKERS = ("cf-chl", "challenge-platform", "Just a moment...", "cf_chl_opt")
 
 
+# What a browser sends when it loads a player inside an <iframe> of another site. Some player
+# hosts (embed69) drop requests that do not look like that.
+IFRAME_HEADERS = {
+    "Sec-Fetch-Dest": "iframe",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "cross-site",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+
 class HttpClient:
     def __init__(self, settings: Settings, *, dump_dir: Path | None = None):
         self.settings = settings

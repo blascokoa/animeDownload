@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 
+from animedl.http import IFRAME_HEADERS
 from animedl.models import EpisodeRef, SeriesInfo, VideoSource
 from animedl.scraping import make_soup, meta_content
 from animedl.sites.animeonline import AnimeOnlineExtractor
@@ -53,7 +54,7 @@ class SoloLatinoExtractor(AnimeOnlineExtractor):
         try:
             sources = self._embed69_sources(episode)
         except Exception as exc:
-            log.debug("sololatino: embed69 no disponible: %s", exc)
+            log.warning("sololatino: no se pudieron leer los reproductores de embed69: %s", exc)
             sources = []
         if sources:
             return sources
@@ -83,7 +84,7 @@ class SoloLatinoExtractor(AnimeOnlineExtractor):
         imdb = self.imdb_id(episode.url)
         m = _SEASON_EPISODE.search(episode.url)
         url = embed69_url(imdb, int(m.group(1)), float(m.group(2))) if m else embed69_url(imdb)
-        resp = self.http.get(url, referer=episode.url)
+        resp = self.http.get(url, referer=episode.url, headers=IFRAME_HEADERS)
         if resp.status_code >= 400:
             raise SiteError(f"embed69 respondió HTTP {resp.status_code} ({url})")
         page = str(resp.url)
