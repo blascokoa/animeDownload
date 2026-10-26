@@ -71,6 +71,7 @@ class Stream:
     url: str
     # "ytdlp" = hand the URL to yt-dlp (direct mp4/m3u8 or a site yt-dlp supports)
     # "mega"  = mega.nz link, downloaded with megatools
+    # "file"  = direct link to a file (1fichier...), plain HTTP download
     kind: str = "ytdlp"
     headers: dict[str, str] = field(default_factory=dict, hash=False, compare=False)
     note: str | None = None

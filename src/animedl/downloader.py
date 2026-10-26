@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import subprocess
 import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 import yt_dlp
+from curl_cffi import requests as cffi_requests
 
 from animedl.config import Settings
 from animedl.models import Stream
+from animedl.naming import VIDEO_EXTENSIONS
 from animedl.progress import ProgressReporter, Tracker
 
 log = logging.getLogger(__name__)
@@ -77,6 +81,8 @@ class Downloader:
         try:
             if stream.kind == "mega":
                 path = self._mega(stream, base, beat)
+            elif stream.kind == "file":
+                path = self._direct(stream, base, beat, tracker)
             else:
                 path = self._ytdlp(stream, base, beat, tracker)
         finally:
@@ -139,6 +145,45 @@ class Downloader:
             raise DownloadError("yt-dlp no devolvió ningún fichero")
         return Path(downloads[0]["filepath"])
 
+    def _direct(
+        self, stream: Stream, base: Path, beat: _Throttled, tracker: Tracker | None
+    ) -> Path:
+        """Plain HTTP download of a file-host link (the extension comes from its file name)."""
+        remove_partials(base)
+        headers = {"User-Agent": self.settings.user_agent, **stream.headers}
+        session = cffi_requests.Session(impersonate="chrome")
+        try:
+            resp = session.get(
+                stream.url, headers=headers, stream=True, timeout=self.settings.request_timeout
+            )
+            if resp.status_code >= 400:
+                raise DownloadError(f"HTTP {resp.status_code} al descargar el fichero")
+            ext = file_extension(resp.headers.get("content-disposition"), stream.url)
+            dest = base.with_name(base.name + ext)
+            part = dest.with_name(dest.name + ".part")
+            total = int(resp.headers.get("content-length") or 0) or None
+            done, started = 0, time.monotonic()
+            with part.open("wb") as fh:
+                for chunk in resp.iter_content():
+                    if self.cancelled.is_set():
+                        raise DownloadCancelled("Descarga cancelada")
+                    fh.write(chunk)
+                    done += len(chunk)
+                    beat()
+                    if tracker:
+                        elapsed = time.monotonic() - started
+                        tracker.update(done, total, done / elapsed if elapsed else None)
+            if total and done < total:
+                raise DownloadError(f"Descarga incompleta ({done} de {total} bytes)")
+            part.replace(dest)
+            return dest
+        except (DownloadError, DownloadCancelled):
+            raise
+        except Exception as exc:
+            raise DownloadError(f"Error al descargar el fichero: {exc}") from exc
+        finally:
+            session.close()
+
     def _mega(self, stream: Stream, base: Path, beat: _Throttled) -> Path:
         megatools = shutil.which("megatools")
         megadl = shutil.which("megadl")
@@ -187,6 +232,22 @@ class Downloader:
         if duration is not None and duration < MIN_DURATION_SECONDS:
             path.unlink(missing_ok=True)
             raise DownloadError(f"El vídeo dura {duration:.0f}s; probablemente es un anuncio")
+
+
+def file_extension(content_disposition: str | None, url: str) -> str:
+    """Video extension from Content-Disposition ('filename="x.mkv"') or the URL; .mp4 otherwise."""
+    name = ""
+    if content_disposition:
+        m = re.search(
+            r"filename\*=(?:UTF-8'')?([^;]+)|filename=\"?([^\";]+)", content_disposition, re.I
+        )
+        if m:
+            name = unquote((m.group(1) or m.group(2)).strip().strip('"'))
+    for candidate in (name, urlsplit(url).path):
+        suffix = Path(candidate).suffix.lower()
+        if suffix in VIDEO_EXTENSIONS:
+            return suffix
+    return ".mp4"
 
 
 def remove_partials(base: Path) -> None:

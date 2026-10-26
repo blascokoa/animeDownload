@@ -154,8 +154,10 @@ LABEL_ALIASES = {
 # Hosts yt-dlp knows how to download by itself.
 YTDLP_NATIVE = {"okru", "mailru", "googledrive", "vk", "dailymotion"}
 # Hosts we know we cannot download, skipped right away.
-# upnshare: the player decrypts the stream in JS; 1fichier: download page with captcha/wait.
-UNSUPPORTED = {"netu", "fembed", "upnshare", "1fichier"}
+# upnshare: the player decrypts the stream in JS.
+UNSUPPORTED = {"netu", "fembed", "upnshare"}
+# Hosts that allow a single download at a time per connection (free accounts).
+ONE_AT_A_TIME = {"1fichier"}
 
 
 def normalize_embed(url: str) -> str:

@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 
-from animedl.hosts.errors import ResolveError
+from animedl.hosts.errors import FileGone, ResolveError
 from animedl.hosts.packer import unpack_all
 from animedl.models import Stream
 from animedl.scraping import absolute, make_soup, meta_content, origin
@@ -84,6 +84,20 @@ def streams_from(urls: list[str], page_url: str, note: str | None = None) -> lis
     return [Stream(url=u, kind="ytdlp", headers=headers, note=note) for u in urls]
 
 
+_GONE = re.compile(
+    r"file (?:was|has been) (?:deleted|removed)|file (?:not found|does not exist|is no longer "
+    r"available)|video (?:not found|has been (?:deleted|removed)|is (?:no longer )?available)"
+    r"|this video (?:was|has been) (?:deleted|removed)|el archivo (?:no existe|ha sido eliminado)",
+    re.I,
+)
+
+
+def check_gone(html: str) -> None:
+    """Raise FileGone when a player page only says the video was deleted."""
+    if _GONE.search(html[:30000]):
+        raise FileGone("el vídeo fue borrado del servidor")
+
+
 _JS_REDIRECT = re.compile(r"""(?:window\.)?location(?:\.href)?\s*=\s*["'](https?://[^"']+)["']""")
 
 
@@ -96,6 +110,7 @@ def resolve_generic(http, url: str, referer: str | None, *, depth: int = 0) -> l
 
     if urls := scan_media(html, page_url):
         return streams_from(urls, page_url)
+    check_gone(html)
 
     if depth < 2:
         soup = make_soup(html)

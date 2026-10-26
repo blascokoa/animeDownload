@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import shutil
 import threading
@@ -14,7 +15,7 @@ from animedl import hosts
 from animedl.config import Settings
 from animedl.db import Database, Episode, Series, now
 from animedl.downloader import DownloadCancelled, Downloader, DownloadError
-from animedl.hosts.catalog import UNSUPPORTED
+from animedl.hosts.catalog import ONE_AT_A_TIME, UNSUPPORTED
 from animedl.http import BlockedError, HttpClient
 from animedl.metadata import Identifier, MediaInfo, split_season
 from animedl.models import EpisodeStatus, Monitor, SeriesInfo, VideoSource, format_number
@@ -26,6 +27,10 @@ log = logging.getLogger(__name__)
 
 class EpisodeError(Exception):
     pass
+
+
+class RetryLater(Exception):
+    """Every usable server asked to wait (free download limits): try again later."""
 
 
 @dataclass
@@ -87,6 +92,7 @@ class AnimeService:
             settings, dump_dir=getattr(http, "dump_dir", None)
         )
         self._local = threading.local()
+        self._host_slots = {name: threading.Semaphore(1) for name in ONE_AT_A_TIME}
 
     def extractor(self, url: str) -> SiteExtractor:
         return self.extractor_factory(url, self.http)
@@ -395,6 +401,10 @@ class AnimeService:
                 log.error("%s", exc)
         except (DownloadCancelled, KeyboardInterrupt, SystemExit):
             self.db.release(ep.id)
+        except RetryLater as exc:
+            self.db.release(ep.id)  # back to the queue without counting an attempt
+            report.errors.append(f"{label}: {exc}")
+            log.warning("%s: %s; se reintentará más tarde", label, exc)
         except Exception as exc:
             if interrupted:
                 self.db.release(ep.id)
@@ -431,27 +441,36 @@ class AnimeService:
             raise EpisodeError(f"Ningún servidor compatible (ofrecidos: {offered})")
 
         errors: list[str] = []
+        must_wait = False
         for src in ranked:
             if self.downloader.cancelled.is_set():
                 raise DownloadCancelled("Descarga cancelada")
-            try:
-                streams = hosts.resolve(http, src)
-            except BlockedError:
-                raise
-            except Exception as exc:
-                errors.append(f"{src.server}: {exc}")
-                log.debug("No se pudo resolver %s: %s", src.url, exc)
-                continue
-            for stream in streams[:3]:
+            # Free file hosts allow one download at a time: the other workers wait their turn.
+            with self._host_slots.get(src.server) or contextlib.nullcontext():
                 try:
-                    log.debug("Probando %s (%s) -> %s", src.server, src.lang, stream.url)
-                    path = self.downloader.download(
-                        stream, base, heartbeat=lambda: self.db.touch(ep.id)
-                    )
-                    return path, src.server
-                except DownloadError as exc:
+                    streams = hosts.resolve(http, src)
+                except BlockedError:
+                    raise
+                except hosts.TryLater as exc:
+                    must_wait = True
                     errors.append(f"{src.server}: {exc}")
-                    log.debug("Falló la descarga desde %s: %s", src.server, exc)
+                    continue
+                except Exception as exc:
+                    errors.append(f"{src.server}: {exc}")
+                    log.debug("No se pudo resolver %s: %s", src.url, exc)
+                    continue
+                for stream in streams[:3]:
+                    try:
+                        log.debug("Probando %s (%s) -> %s", src.server, src.lang, stream.url)
+                        path = self.downloader.download(
+                            stream, base, heartbeat=lambda: self.db.touch(ep.id)
+                        )
+                        return path, src.server
+                    except DownloadError as exc:
+                        errors.append(f"{src.server}: {exc}")
+                        log.debug("Falló la descarga desde %s: %s", src.server, exc)
+        if must_wait:
+            raise RetryLater(" | ".join(errors[-8:]))
         raise EpisodeError(" | ".join(errors[-8:]) or "sin fuentes")
 
     # --------------------------------------------------------------- update

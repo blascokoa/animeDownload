@@ -9,11 +9,12 @@ import random
 import re
 import string
 import time
+from urllib.parse import urlsplit
 
-from animedl.hosts.errors import ResolveError
+from animedl.hosts.errors import FileGone, ResolveError, TryLater
 from animedl.hosts.generic import scan_media, streams_from
 from animedl.models import Stream
-from animedl.scraping import absolute, origin
+from animedl.scraping import absolute, make_soup, origin
 
 # ------------------------------------------------------------------ streamtape
 
@@ -137,3 +138,61 @@ def mega_url(url: str) -> str:
 
 def resolve_mega(http, url: str, referer: str | None) -> list[Stream]:
     return [Stream(url=mega_url(url), kind="mega")]
+
+
+# -------------------------------------------------------------------- 1fichier
+# Free download: open the page, submit its form (hidden "adz" field) and 1fichier answers with
+# (or redirects to) a direct link on a-N.1fichier.com. No captcha; when it asks to wait between
+# free downloads we report it instead of hammering it.
+
+_1F_BLOCKED = re.compile(r"professional infrastructure|infrastructure professionnelle", re.I)
+_1F_WAIT = re.compile(
+    r"(?:you must wait|vous devez attendre)\D{0,30}?(\d+)\s*(minutes?|mins?|seconds?|secondes?)",
+    re.I,
+)
+_1F_GONE = re.compile(
+    r"file could not be found|file has been deleted|n'existe pas|a été supprimé|introuvable", re.I
+)
+_1F_LINK = re.compile(r"https?://[a-z0-9-]+\.1fichier\.com/[A-Za-z0-9_]+")
+
+
+def _1fichier_file_link(url: str) -> bool:
+    host = urlsplit(url).hostname or ""
+    return host.endswith(".1fichier.com") and not host.startswith(("img.", "www.", "static."))
+
+
+def _check_1fichier(html: str) -> None:
+    if _1F_BLOCKED.search(html):
+        raise ResolveError("1fichier bloquea esta conexión (la toma por VPN, proxy o servidor)")
+    if m := _1F_WAIT.search(html):
+        raise TryLater(f"1fichier pide esperar {m.group(1)} {m.group(2)} entre descargas gratuitas")
+    if _1F_GONE.search(html):
+        raise FileGone("1fichier: el fichero ya no existe")
+
+
+def resolve_1fichier(http, url: str, referer: str | None) -> list[Stream]:
+    resp = http.get(url, referer=referer)
+    page_url, html = str(resp.url), resp.text
+    _check_1fichier(html)
+    form = next(
+        (f for f in make_soup(html).find_all("form") if f.find("input", attrs={"name": "adz"})),
+        None,
+    )
+    if form is None:
+        raise ResolveError("1fichier: no se encontró el botón de descarga")
+    data = {
+        i["name"]: i.get("value", "")
+        for i in form.find_all("input")
+        if i.get("name") and i.get("type") not in ("checkbox", "submit")
+    }
+    action = absolute(form.get("action") or page_url, page_url)
+    resp = http.post(action, data=data, referer=page_url, allow_redirects=False)
+    location = (getattr(resp, "headers", None) or {}).get("location")
+    if location and _1fichier_file_link(location):
+        link = location
+    else:
+        _check_1fichier(resp.text)
+        link = next((u for u in _1F_LINK.findall(resp.text) if _1fichier_file_link(u)), None)
+    if not link:
+        raise ResolveError("1fichier: no devolvió el enlace de descarga")
+    return [Stream(url=link, kind="file", headers={"Referer": page_url})]

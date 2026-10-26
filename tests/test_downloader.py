@@ -165,3 +165,48 @@ def test_cancel_stops_a_real_download(media_server, settings, tmp_path):
     downloader.cancelled.set()
     with pytest.raises(DownloadCancelled):
         downloader.download(Stream(url=f"{media_server}/ep.m3u8"), tmp_path / "ep")
+
+
+@pytest.fixture(scope="module")
+def file_host(media_server, tmp_path_factory):
+    """Serves the test video at an extension-less URL with a file name, like 1fichier."""
+    import urllib.request
+
+    data = urllib.request.urlopen(f"{media_server}/ep.mp4").read()
+
+    class Handler(SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Content-Disposition", 'attachment; filename="Pelicula (2019).mkv"')
+            self.end_headers()
+            self.wfile.write(data)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}/c1234567890"
+    server.shutdown()
+
+
+def test_direct_file_download_uses_the_served_file_name(file_host, settings, tmp_path):
+    rec = _Recorder()
+    path = Downloader(settings, progress=rec).download(
+        Stream(url=file_host, kind="file"), tmp_path / "Peli" / "Peli (2019)"
+    )
+    assert path == tmp_path / "Peli" / "Peli (2019).mkv"
+    assert path.stat().st_size > 10_000
+    assert rec.events[-1] == ("finish",) and any(e[0] == "update" for e in rec.events)
+    assert not list(path.parent.glob("*.part"))
+
+
+def test_direct_file_download_can_be_cancelled(file_host, settings, tmp_path):
+    from animedl.downloader import DownloadCancelled
+
+    downloader = Downloader(settings)
+    downloader.cancelled.set()
+    with pytest.raises(DownloadCancelled):
+        downloader.download(Stream(url=file_host, kind="file"), tmp_path / "x")

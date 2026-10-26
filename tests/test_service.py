@@ -306,3 +306,30 @@ def test_ctrl_c_cancels_running_downloads_and_releases_them(service, site, setti
         e.status == EpisodeStatus.PENDING and e.attempts == 0
         for e in service.db.episodes(series.id)
     )
+
+
+def test_host_asking_to_wait_sends_the_episode_back_to_the_queue(service, site, monkeypatch):
+    from animedl.hosts import TryLater
+
+    def wait_please(http, src):
+        raise TryLater("1fichier pide esperar 5 minutes")
+
+    monkeypatch.setattr("animedl.service.hosts.resolve", wait_please)
+    series, _ = service.add_series(URL)
+    report = service.download_pending([series])
+    assert not report.failed and len(report.errors) == 3
+    assert all(
+        e.status == EpisodeStatus.PENDING and e.attempts == 0
+        for e in service.db.episodes(series.id)
+    )
+
+
+def test_one_at_a_time_hosts_are_not_used_in_parallel(service, site, settings, monkeypatch):
+    settings.parallel_downloads = 3
+    site.count = 4
+    site.get_sources = lambda ep: [VideoSource(f"https://1fichier.com/?{ep.number}", "1fichier")]
+    monkeypatch.setattr("animedl.service.hosts.resolve", lambda http, src: [Stream(url=src.url)])
+    service.downloader = SlowDownloader()
+    series, _ = service.add_series(URL)
+    assert len(service.download_pending([series]).downloaded) == 4
+    assert service.downloader.max_running == 1

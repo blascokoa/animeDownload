@@ -28,9 +28,11 @@ en emisión y descarga los episodios nuevos.
 | Cualquier otra | — | extractor genérico (enlaces de episodios + iframes); puede o no funcionar |
 
 **Servidores de vídeo:** ok.ru, Streamwish, VidHide/Filelions, Filemoon, Mp4upload,
-YourUpload, los reproductores propios de JKAnime, Streamtape, Voe, Doodstream, Mixdrop y
-MEGA. Por cada episodio se prueban por orden de preferencia (idioma y servidor) hasta que uno
-funciona.
+YourUpload, los reproductores propios de JKAnime, Streamtape, Voe, Doodstream, Mixdrop, MEGA y
+1Fichier. 1Fichier usa la descarga gratuita: un fichero a la vez y, si pide esperar entre
+descargas, el episodio vuelve a la cola sin contar como fallo. Por cada episodio se prueban por
+orden de preferencia (idioma y servidor) hasta que uno funciona; si un servidor dice que el
+vídeo está borrado, se pasa al siguiente.
 
 > **Estado (octubre 2026), probado desde un servidor en la nube:**
 > - **animeflv.ba:** verificado contra la web real. Lista completa de episodios (también series

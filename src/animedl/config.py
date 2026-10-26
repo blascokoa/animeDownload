@@ -24,6 +24,7 @@ DEFAULT_SERVERS = [
     "streamtape",
     "voe",
     "filemoon",
+    "1fichier",
     "mega",
     "mixdrop",
     "doodstream",

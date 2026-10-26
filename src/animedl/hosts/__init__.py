@@ -5,12 +5,18 @@ from __future__ import annotations
 import logging
 
 from animedl.hosts.catalog import UNSUPPORTED, YTDLP_NATIVE, identify_host, is_known_host
-from animedl.hosts.errors import ResolveError
+from animedl.hosts.errors import FileGone, ResolveError, TryLater
 from animedl.hosts.generic import resolve_generic
-from animedl.hosts.specific import resolve_dood, resolve_mega, resolve_streamtape, resolve_voe
+from animedl.hosts.specific import (
+    resolve_1fichier,
+    resolve_dood,
+    resolve_mega,
+    resolve_streamtape,
+    resolve_voe,
+)
 from animedl.models import Stream, VideoSource
 
-__all__ = ["ResolveError", "identify_host", "is_known_host", "resolve"]
+__all__ = ["FileGone", "ResolveError", "TryLater", "identify_host", "is_known_host", "resolve"]
 
 log = logging.getLogger(__name__)
 
@@ -19,6 +25,7 @@ _RESOLVERS = {
     "voe": resolve_voe,
     "doodstream": resolve_dood,
     "mega": resolve_mega,
+    "1fichier": resolve_1fichier,
 }
 
 

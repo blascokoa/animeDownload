@@ -169,3 +169,70 @@ def test_resolve_generic_follows_iframe():
     )
     assert stream.url == "https://be.cdn/x/master.m3u8"
     assert stream.headers["Referer"] == "https://ico3c.com/bkg/abc"
+
+
+# -------------------------------------------------------------------- 1fichier
+# Free-download page modelled on the flow pyLoad/JDownloader implement (1fichier blocks the
+# test environment's IP, see BLOCKED below, so the live page could not be captured).
+
+ONEF_URL = "https://1fichier.com/?if9p4v80bdzwihzntylv"
+ONEF_PAGE = f"""
+<form action="{ONEF_URL}" method="post">
+  <input type="hidden" name="adz" value="7.123">
+  <input type="checkbox" name="dl_no_ssl">
+  <input type="submit" id="dlb" value="Download" class="ok btn-general btn-orange">
+</form>"""
+ONEF_LINK = "https://a-7.1fichier.com/c1234567890"
+# Real answer of 1fichier to the test environment (datacenter IP), trimmed.
+BLOCKED = (
+    "IP Address 160.79.106.134 : Accès restreint – professional infrastructure detected. "
+    "This IP address has been identified as belonging to a server, proxy, VPN..."
+)
+
+
+def test_1fichier_redirect_to_file():
+    http = FakeHttp(
+        {
+            ("GET", ONEF_URL): ONEF_PAGE,
+            ("POST", ONEF_URL): FakeResponse("", 302, ONEF_URL, {"location": ONEF_LINK}),
+        }
+    )
+    [stream] = resolve(http, VideoSource(ONEF_URL, "1fichier", "sub", "https://animeflv.ba/x"))
+    assert (stream.url, stream.kind) == (ONEF_LINK, "file")
+    assert http.calls[-1] == ("POST", ONEF_URL, {"adz": "7.123"})
+
+
+def test_1fichier_link_in_page():
+    page = f'<a href="https://img.1fichier.com/logo.png"></a><a href="{ONEF_LINK}">Click here to download the file</a>'
+    http = FakeHttp({("GET", ONEF_URL): ONEF_PAGE, ("POST", ONEF_URL): page})
+    [stream] = resolve(http, VideoSource(ONEF_URL, "1fichier"))
+    assert stream.url == ONEF_LINK
+
+
+@pytest.mark.parametrize(
+    ("page", "error", "message"),
+    [
+        (
+            "You must wait 5 minutes to download again or subscribe to a premium offer",
+            "TryLater",
+            "5 minutes",
+        ),
+        (BLOCKED, "ResolveError", "VPN"),
+        ("The requested file could not be found", "FileGone", "ya no existe"),
+    ],
+)
+def test_1fichier_errors(page, error, message):
+    from animedl import hosts
+
+    http = FakeHttp({("GET", ONEF_URL): page})
+    with pytest.raises(getattr(hosts, error), match=message):
+        resolve(http, VideoSource(ONEF_URL, "1fichier"))
+
+
+def test_deleted_video_is_reported_instead_of_trying_ytdlp():
+    from animedl.hosts import FileGone
+
+    url = "https://www.mp4upload.com/embed-bvmo8nnpnc4w.html"
+    http = FakeHttp({("GET", url): "File was deleted"})  # real mp4upload answer
+    with pytest.raises(FileGone):
+        resolve(http, VideoSource(url, "mp4upload"))

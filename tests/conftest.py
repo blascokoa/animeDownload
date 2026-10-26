@@ -12,11 +12,12 @@ from animedl.db import Database
 
 
 class FakeResponse:
-    def __init__(self, text: str = "", status_code: int = 200, url: str = ""):
+    def __init__(self, text: str = "", status_code: int = 200, url: str = "", headers=None):
         self.text = text
         self.content = text.encode()
         self.status_code = status_code
         self.url = url
+        self.headers = headers or {}
 
     def json(self):
         return json.loads(self.text)
