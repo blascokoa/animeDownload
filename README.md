@@ -24,7 +24,7 @@ en emisión y descarga los episodios nuevos.
 | AnimeFLV y clones (`animeflv.ba`, `animeflv.net`…) | `https://animeflv.ba/anime/the-promised-neverland-mrwxzt` | animeflv.ba: JSON `af-episodes` + API `ajax/server/list`; animeflv.net: variables `episodes`/`videos` |
 | JKAnime | `https://jkanime.net/black-clover-2nd-season/` | API AJAX de episodios (la nueva y la antigua); si no, enlaces de la página |
 | AnimeOnline.ninja | `https://ww3.animeonline.ninja/online/kanojo-no-tomodachi/` | tema DooPlay de WordPress (temporadas y API del reproductor) |
-| SoloLatino | `https://sololatino.co/serie/yosuga-no-sora` (o la URL de un episodio) | enlaces `/temporada-N/episodio-M` y ficha (estado, IMDb); reproductores de embed69 a partir del IMDb (formato de embed69 sin verificar) |
+| SoloLatino | `https://sololatino.co/serie/yosuga-no-sora` (o la URL de un episodio) | episodios, estado e IMDb sí; **los vídeos no**: su reproductor (embed69) cifra los enlaces tras un proof-of-work antibots que animedl no resuelve |
 | Cualquier otra | — | extractor genérico (enlaces de episodios + iframes); puede o no funcionar |
 
 **Servidores de vídeo:** ok.ru, Streamwish, VidHide/Filelions, Filemoon, Mp4upload,

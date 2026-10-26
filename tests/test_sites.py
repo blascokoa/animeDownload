@@ -8,6 +8,8 @@ live sites, so keep it in sync with what `animedl probe --dump` shows if a site 
 import base64
 import json
 
+import pytest
+
 from animedl.models import EpisodeRef, SeriesStatus
 from animedl.scraping import find_episode_links, slug_candidates
 from animedl.sites import extractor_for
@@ -507,17 +509,30 @@ def test_sololatino_sources_come_from_embed69():
     assert all(s.referer == "https://embed69.org/f/tt1743681-1x12" for s in sources)
 
 
-def test_embed69_remote_decryption():
-    from animedl.sites.embed69 import embed69_links
+def test_embed69_proof_of_work_protection_is_reported():
+    """Trimmed from the live embed69 page: AES-encrypted links behind a proof-of-work."""
+    from animedl.sites.embed69 import Embed69Protected, embed69_links
+    from animedl.sites.sololatino import SoloLatinoExtractor
 
-    page = "https://embed69.org/f/tt1-1x1"
-    html = '<script>let dataLink = [{"video_language":"ESP","sortedEmbeds":[{"servername":"vidhide","link":"x"}]}];</script>'
+    html = """<script>
+    const POW_CHALLENGE = '7011d75655b51d7e10cd4141a465d07a';
+    const POW_DIFFICULTY = 3;
+    let dataLink = [{"file_id":123420,"video_language":"LAT","sortedEmbeds":[{"servername":"vidhide",
+    "link":"d6FsUcVN8L6FP2JdTACPmbFgVaYrT7cMXoDQy+hsaY69Og8AolK1a4hShHhOyVI1a7+gdWsZ57diDSJwawlcqQ==",
+    "type":"video"}],"downloadEmbeds":[{"servername":"voe","link":"v32chAiG3QuMTMob2LeRY4PET8dh",
+    "type":"download"}]}];
+    </script>"""
+    with pytest.raises(Embed69Protected, match="proof-of-work"):
+        embed69_links(html)
+
+    series = "https://sololatino.co/serie/yosuga-no-sora"
+    episode = f"{series}/temporada-1/episodio-12"
     http = FakeHttp(
         {
-            ("POST", "https://embed69.org/api/decrypt"): {
-                "success": True,
-                "links": [{"index": 0, "link": "https://vidhide.com/v/1"}],
-            }
+            ("GET", series): SL_SERIES,
+            ("GET", episode): SL_EPISODE,
+            ("GET", "https://embed69.org/f/tt1743681-1x12"): html,
         }
     )
-    assert embed69_links(html, page, http) == [("https://vidhide.com/v/1", "vidhide", "cast")]
+    with pytest.raises(Embed69Protected):
+        SoloLatinoExtractor(http).get_sources(EpisodeRef(12, episode))

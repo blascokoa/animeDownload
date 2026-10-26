@@ -4,7 +4,8 @@
   list (<dt>/<dd>) with "Estado" (TMDB status, e.g. "Ended") and "IMDb" (tt1743681).
 * Episode pages only carry encrypted `data-player-token` buttons that the site's JS turns into a
   player. The players are embed69 pages, which are addressed by IMDb id + season/episode, so they
-  are built directly (see embed69.py).
+  are built directly. embed69 currently hides the server links behind an anti-bot
+  proof-of-work, so episodes cannot be downloaded from here (see embed69.py).
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from animedl.models import EpisodeRef, SeriesInfo, VideoSource
 from animedl.scraping import make_soup, meta_content
 from animedl.sites.animeonline import AnimeOnlineExtractor
 from animedl.sites.base import SiteError
-from animedl.sites.embed69 import embed69_links, embed69_url
+from animedl.sites.embed69 import Embed69Protected, embed69_links, embed69_url
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +54,8 @@ class SoloLatinoExtractor(AnimeOnlineExtractor):
     def get_sources(self, episode: EpisodeRef) -> list[VideoSource]:
         try:
             sources = self._embed69_sources(episode)
+        except Embed69Protected:
+            raise  # nothing else on the page can be played without it
         except Exception as exc:
             log.warning("sololatino: no se pudieron leer los reproductores de embed69: %s", exc)
             sources = []
@@ -90,5 +93,5 @@ class SoloLatinoExtractor(AnimeOnlineExtractor):
         page = str(resp.url)
         return [
             self.source(link, label=name, lang=lang, referer=page)
-            for link, name, lang in embed69_links(resp.text, page, self.http)
+            for link, name, lang in embed69_links(resp.text)
         ]
